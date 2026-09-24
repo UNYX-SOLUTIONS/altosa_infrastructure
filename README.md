@@ -1,34 +1,59 @@
-# Altosa Infrastructure v2
+# Altosa Infrastructure V3
 
-Infraestructura Docker para PostgreSQL 16 + pgvector + pgAdmin, integrada con el n8n y Traefik existentes de Hostinger.
+Infraestructura base para el VPS de Altosa.
+
+## Objetivo
+
+- PostgreSQL 16 + pgvector.
+- pgAdmin disponible solo localmente en el VPS (`127.0.0.1:5050`).
+- Red Docker compartida `altosa_backend`.
+- Detección automática del n8n existente y conexión a `altosa_backend`.
+- No reinstala ni modifica Traefik.
+- No requiere dominio/host para pgAdmin.
+- PostgreSQL no publica el puerto 5432.
+- Volúmenes persistentes para PostgreSQL y pgAdmin.
 
 ## Arquitectura
 
-- Traefik existente: publica HTTPS.
-- pgAdmin: descubierto por Traefik mediante labels Docker.
-- n8n existente: el instalador lo detecta y lo conecta a `altosa_backend`.
-- PostgreSQL: solo en `altosa_backend`, sin puerto 5432 publicado al host.
+Internet -> Traefik existente -> n8n existente
 
-## Instalacion / reinstalacion
+`altosa_backend`:
+- n8n
+- altosa-pgadmin
+- altosa-postgres
+
+pgAdmin queda en `127.0.0.1:5050` hasta que se decida publicar mediante Traefik.
+
+## Instalación
 
 ```bash
 cd /docker
-git clone <REPO> altosa_infrastructure
+git clone <REPOSITORIO> altosa_infrastructure
 cd altosa_infrastructure
 chmod +x install.sh update.sh backup.sh uninstall.sh scripts/*.sh
 ./install.sh
 ```
 
-En la primera ejecucion se crea `.env`. Edite `PGADMIN_HOST` y vuelva a ejecutar `./install.sh`.
+El primer arranque crea `.env` automáticamente. `.env` no debe subirse a Git.
+
+## Reinstalación / actualización desde GitHub
+
+Si GitHub debe ser la fuente de verdad y no quieres conservar cambios locales de código:
 
 ```bash
-nano .env
+cd /docker/altosa_infrastructure
+git status
+git reset --hard origin/main
+git pull
+chmod +x install.sh update.sh backup.sh uninstall.sh scripts/*.sh
 ./install.sh
 ```
 
-Antes de usar el dominio, cree el registro DNS A de `PGADMIN_HOST` apuntando al VPS.
+**Esto no elimina los volúmenes Docker**, pero `git reset --hard` sí elimina cambios locales en archivos versionados. El `.env` está ignorado y se conserva.
 
-## Conexion desde n8n a PostgreSQL
+## Conexión desde n8n a PostgreSQL
+
+Usar:
 
 - Host: `altosa-postgres`
 - Port: `5432`
@@ -38,21 +63,41 @@ Antes de usar el dominio, cree el registro DNS A de `PGADMIN_HOST` apuntando al 
 
 ## pgAdmin
 
-Dentro de pgAdmin use `altosa-postgres` como hostname de PostgreSQL, nunca la IP publica del VPS.
+Desde el propio VPS escucha en:
 
-## Reinstalacion segura
+`127.0.0.1:5050`
 
-`docker compose down` no borra los volumenes. No use `docker compose down -v` salvo que quiera eliminar permanentemente PostgreSQL y pgAdmin.
+Para acceder remotamente sin dominio se puede usar un túnel SSH desde el PC:
 
-## Comandos
+```bash
+ssh -L 5050:127.0.0.1:5050 root@IP_DEL_VPS
+```
+
+y abrir `http://127.0.0.1:5050` en el navegador local.
+
+## Backups
+
+```bash
+./backup.sh
+```
+
+## Restore
+
+```bash
+./scripts/restore-postgres.sh backups/archivo.dump
+```
+
+## Healthcheck
 
 ```bash
 ./scripts/healthcheck.sh
-./backup.sh
-./update.sh
-./uninstall.sh
 ```
 
-## Seguridad
+## Datos persistentes
 
-`.env` y `backups/` estan excluidos de Git. PostgreSQL no publica 5432. pgAdmin sale por HTTPS usando el Traefik existente.
+Los volúmenes son:
+
+- `altosa_postgres_data`
+- `altosa_pgadmin_data`
+
+`docker compose down` no los elimina. No ejecutar `docker compose down -v` salvo que realmente se quiera borrar la información.

@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-[[ $# -eq 1 ]] || { echo "Uso: $0 archivo.dump"; exit 1; }
+if [ $# -ne 1 ]; then
+  echo "Uso: $0 backups/archivo.dump"
+  exit 1
+fi
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+set -a
+source .env
+set +a
 FILE="$1"
-[[ -f "$FILE" ]] || { echo "No existe: $FILE"; exit 1; }
-cd "$(dirname "$0")/.."
-set -a; source .env; set +a
-cat "$FILE" | docker exec -i altosa-postgres pg_restore --clean --if-exists --no-owner -U "$POSTGRES_USER" -d "$POSTGRES_DB"
-echo "Restauracion completada"
+[ -f "$FILE" ] || { echo "No existe: $FILE"; exit 1; }
+
+cat "$FILE" | docker exec -i altosa-postgres pg_restore \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner
+echo "Restauración terminada."

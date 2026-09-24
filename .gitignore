@@ -1,6 +1,6 @@
 .env
 backups/*
 !backups/.gitkeep
+*.sql
 *.dump
 *.backup
-*.sql
