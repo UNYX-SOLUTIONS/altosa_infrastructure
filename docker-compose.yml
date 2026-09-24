@@ -15,7 +15,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 10s
 
   pgadmin:
@@ -25,20 +25,28 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "True"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     networks:
       - altosa_backend
     ports:
-      - "127.0.0.1:5050:80"
+      - "80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.altosa-pgadmin.rule=Host(`${PGADMIN_HOST}`)"
+      - "traefik.http.routers.altosa-pgadmin.entrypoints=websecure"
+      - "traefik.http.routers.altosa-pgadmin.tls=true"
+      - "traefik.http.routers.altosa-pgadmin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.altosa-pgadmin.loadbalancer.server.port=80"
     depends_on:
       postgres:
         condition: service_healthy
 
 networks:
   altosa_backend:
+    external: true
     name: altosa_backend
-    driver: bridge
 
 volumes:
   postgres_data:
