@@ -29,8 +29,15 @@ services:
       - pgadmin_data:/var/lib/pgadmin
     networks:
       - altosa_backend
+    # A random host port is allocated. Traefik discovers it through Docker,
+    # just like the Hostinger n8n deployment.
     ports:
-      - "127.0.0.1:5050:80"
+      - "80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.altosa-pgadmin.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.altosa-pgadmin.entrypoints=pgadmin"
+      - "traefik.http.services.altosa-pgadmin.loadbalancer.server.port=80"
     depends_on:
       postgres:
         condition: service_healthy

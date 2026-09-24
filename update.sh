@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 cd "$(dirname "$0")"
-echo "[+] Pull de imágenes..."
+set -a; source .env; set +a
+./scripts/configure-traefik-pgadmin.sh "${PGADMIN_PUBLIC_PORT:-5050}"
 docker compose pull
-echo "[+] Aplicando actualización..."
 docker compose up -d
 ./scripts/connect-n8n.sh
 ./scripts/healthcheck.sh
