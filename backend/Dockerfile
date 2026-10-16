@@ -13,7 +13,9 @@ RUN pnpm build
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache openssl && corepack enable
+RUN apk add --no-cache openssl && corepack enable \
+  && mkdir -p /data/uploads \
+  && chown -R node:node /data
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/prisma ./prisma
