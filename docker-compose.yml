@@ -29,9 +29,10 @@ services:
       - pgadmin_data:/var/lib/pgadmin
     networks:
       - altosa_backend
-    # A random host port is allocated. Traefik discovers it through Docker,
-    # just like the Hostinger n8n deployment.
-    ports:
+    # Solo red interna: el acceso público va SIEMPRE por Traefik
+    # (HTTPS en dbglobal.altosamobiliario.com y respaldo http://IP:5050).
+    # NO publicar el puerto 80 directo (expondría pgAdmin sin cifrado).
+    expose:
       - "80"
     labels:
       - "traefik.enable=true"
@@ -74,6 +75,9 @@ services:
         condition: service_healthy
     networks:
       - altosa_backend
+    # Solo red interna: el acceso público va por Traefik (HTTPS).
+    expose:
+      - "4100"
     labels:
       - "traefik.enable=true"
       # Traefik (host-mode) alcanza la IP del contenedor en su red bridge.
@@ -86,6 +90,7 @@ services:
       - "traefik.http.routers.altosa-api.tls.certresolver=letsencrypt"
       - "traefik.http.routers.altosa-api.priority=300"
       - "traefik.http.routers.altosa-api.middlewares=altosa-api-ratelimit"
+      - "traefik.http.routers.altosa-api.service=altosa-api"
       - "traefik.http.middlewares.altosa-api-ratelimit.ratelimit.average=50"
       - "traefik.http.middlewares.altosa-api-ratelimit.ratelimit.burst=100"
       - "traefik.http.services.altosa-api.loadbalancer.server.port=4100"
