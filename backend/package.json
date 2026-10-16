@@ -1,0 +1,36 @@
+{
+  "name": "altosa-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API interna de solo lectura sobre la base de datos del cliente Altosa (catálogo/KB). Consumida únicamente por el backend del ERP Unyx.",
+  "packageManager": "pnpm@9.1.0",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "type-check": "tsc --noEmit",
+    "prisma:generate": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "5.14.0",
+    "compression": "1.7.4",
+    "dotenv": "16.4.5",
+    "express": "4.19.2",
+    "express-rate-limit": "7.2.0",
+    "helmet": "7.1.0",
+    "http-status-codes": "2.3.0",
+    "pino": "9.1.0",
+    "pino-http": "10.1.0",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@types/compression": "1.7.5",
+    "@types/express": "4.17.21",
+    "@types/node": "20.12.12",
+    "pino-pretty": "11.1.0",
+    "prisma": "5.14.0",
+    "tsx": "4.10.5",
+    "typescript": "5.4.5"
+  }
+}

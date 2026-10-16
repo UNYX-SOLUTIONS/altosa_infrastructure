@@ -42,6 +42,32 @@ services:
       postgres:
         condition: service_healthy
 
+  # API interna de solo lectura sobre la base de datos del cliente.
+  # NO publica puertos: solo es alcanzable desde la red altosa_backend
+  # (backend del ERP Unyx, n8n, etc.).
+  api:
+    build:
+      context: ./backend
+    image: altosa-api:latest
+    container_name: altosa-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4100
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@altosa-postgres:5432/${POSTGRES_DB}?schema=public
+      API_KEY: ${ALTOSA_API_KEY:?Define ALTOSA_API_KEY en .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - altosa_backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4100/health > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
 networks:
   altosa_backend:
     external: true

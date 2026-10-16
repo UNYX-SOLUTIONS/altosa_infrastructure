@@ -51,3 +51,32 @@ El VPS/proveedor debe permitir TCP 5050 para poder acceder desde Internet.
 El Traefik de Hostinger usa `network_mode: host`; por eso el entrypoint escucha directamente en el host. pgAdmin publica un puerto Docker aleatorio solo para que el provider Docker de Traefik pueda alcanzarlo siguiendo el mismo patrón que la instalación actual de n8n.
 
 No ejecutes `docker compose down -v` si quieres conservar la información.
+
+## API interna (altosa-api)
+
+Servicio de solo lectura sobre la base de datos del cliente (`backend/`), consumido por el backend del ERP Unyx (patrón BFF). No publica puertos: solo es alcanzable dentro de la red Docker `altosa_backend`.
+
+- Endpoints: `/health` (sin key) y `/api/v1/{products, products/:id, products/sku/:sku, categories, catalogs, locations, warranties, documents}`.
+- Autenticación: header `x-api-key` con `ALTOSA_API_KEY` de `.env`.
+- En `.env` agregar: `ALTOSA_API_KEY=<openssl rand -hex 32>` (la misma clave se configura en el backend del ERP).
+- Build/levantar: `docker compose build api && docker compose up -d api` (o `./update.sh`).
+- Prueba: `docker exec <contenedor-backend-erp> wget -qO- --header='x-api-key: <KEY>' http://altosa-api:4100/health`
+- Esquema en Prisma: solo `prisma generate`, NUNCA `migrate` (las tablas las administra el pipeline n8n/`kb_sync_record` del cliente).
+
+### Desarrollo local del API
+
+```powershell
+cd backend
+pnpm install
+pnpm prisma generate
+# .env local: PORT=4199, DATABASE_URL=postgresql://altosa_admin:<pass>@localhost:5499/altosa, API_KEY=<clave de prueba>
+pnpm dev
+```
+
+Restaurar el dump localmente (contenedor temporales pgvector/pg16):
+
+```powershell
+docker run -d --name altosa-restore -e POSTGRES_USER=altosa_admin -e POSTGRES_PASSWORD=temp_restore -e POSTGRES_DB=altosa -p 5499:5432 -v "<ruta sql>:/dump" pgvector/pgvector:pg16
+docker exec altosa-restore psql -U altosa_admin -d altosa -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION IF NOT EXISTS vector;"
+docker exec altosa-restore pg_restore -U altosa_admin -d altosa --no-owner --role=altosa_admin /dump/altosa_2026-10-15.schema.backup
+```

@@ -1,0 +1,188 @@
+// Esquema del API de Altosa.
+// IMPORTANTE: este servicio NO usa migraciones (`prisma migrate`); solo `prisma generate`.
+// Las tablas pertenecen al pipeline de sincronización (n8n/kb_sync_record) del cliente,
+// por eso se omiten columnas internas de sync (source_*, content_hash, sync_metadata)
+// y la columna `embedding vector(1536)` de documents.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Estado {
+  id         Int      @id @db.SmallInt
+  estado     String   @unique @db.Text
+  permiteRag Boolean  @default(false) @map("permite_rag")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  productos   Producto[]
+  variants    ProductoVariante[]
+  catalogos   Catalogo[]
+  garantias   Garantia[]
+  ubicaciones Ubicacion[]
+
+  @@map("estados")
+}
+
+model Categoria {
+  id        Int      @id @default(autoincrement()) @map("id_categoria")
+  nombre    String   @unique @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  subcategorias Subcategoria[]
+
+  @@map("categories")
+}
+
+model Subcategoria {
+  id          Int      @id @default(autoincrement()) @map("id_sub_categoria")
+  idCategoria Int      @map("id_categoria")
+  nombre      String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  categoria  Categoria  @relation(fields: [idCategoria], references: [id])
+  productos  Producto[]
+
+  @@map("subcategories")
+}
+
+model Producto {
+  idProducto     Int      @id @default(autoincrement()) @map("id_producto")
+  idSubCategoria Int      @map("id_sub_categoria")
+  producto       String   @db.Text
+  descripcion    String?  @db.Text
+  usoRecomendado String?  @map("uso_recomendado") @db.Text
+  estadoId       Int      @map("estado_id") @db.SmallInt
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  subcategoria Subcategoria      @relation(fields: [idSubCategoria], references: [id])
+  estado       Estado            @relation(fields: [estadoId], references: [id])
+  variants     ProductoVariante[]
+
+  @@map("products")
+}
+
+model ProductoVariante {
+  idVariante                  Int      @id @default(autoincrement()) @map("id_variante")
+  idProducto                  Int      @map("id_producto")
+  idGarantia                  Int?     @map("id_garantia")
+  idCatalogo                  Int?     @map("id_catalogo")
+  descripcion                 String?  @db.Text
+  urlProducto                 String?  @map("url_producto") @db.Text
+  sku                         String?  @db.Text
+  color                       String?  @db.Text
+  precioUsd                   Decimal? @map("precio_usd") @db.Decimal(12, 2)
+  material                    String?  @db.Text
+  tapizado                    String?  @db.Text
+  estructura                  String?  @db.Text
+  anchoTotalCm                Decimal? @map("ancho_total_cm") @db.Decimal(10, 2)
+  profundidadAsientoCm        Decimal? @map("profundidad_asiento_cm") @db.Decimal(10, 2)
+  alturaTotalCm               String?  @map("altura_total_cm") @db.Text
+  alturaAsientoCm             String?  @map("altura_asiento_cm") @db.Text
+  anchoAsientoCm              Decimal? @map("ancho_asiento_cm") @db.Decimal(10, 2)
+  pesoKg                      Decimal? @map("peso_kg") @db.Decimal(10, 2)
+  apilable                    String?  @db.Text
+  proteccionUv                String?  @map("proteccion_uv") @db.Text
+  resistenciaIntemperie       String?  @map("resistencia_intemperie") @db.Text
+  soporteLumbar               String?  @map("soporte_lumbar") @db.Text
+  brazos                      String?  @db.Text
+  cabecera                    String?  @db.Text
+  mecanismo                   String?  @db.Text
+  usoRecomendado              String?  @map("uso_recomendado") @db.Text
+  especificacionesAdicionales String?  @map("especificaciones_adicionales") @db.Text
+  estadoId                    Int      @map("estado_id") @db.SmallInt
+  isActive                    Boolean  @default(true) @map("is_active")
+  imagenUrl                   String?  @map("imagen_url") @db.Text
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  producto Producto  @relation(fields: [idProducto], references: [idProducto])
+  garantia Garantia? @relation(fields: [idGarantia], references: [idGarantia])
+  catalogo Catalogo? @relation(fields: [idCatalogo], references: [id])
+  estado   Estado    @relation(fields: [estadoId], references: [id])
+
+  @@map("product_variants")
+}
+
+model Catalogo {
+  id               Int      @id @default(autoincrement())
+  keyword          String?  @db.Text
+  archivo          String?  @db.Text
+  vigenciaDocumento String? @map("vigencia_documento") @db.Text
+  paginas          Int?
+  driveUrl         String?  @map("drive_url") @db.Text
+  aprobado         String?  @db.Text
+  observaciones    String?  @db.Text
+  estadoId         Int      @map("estado_id") @db.SmallInt
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  estado   Estado             @relation(fields: [estadoId], references: [id])
+  variants ProductoVariante[]
+
+  @@map("catalogs")
+}
+
+model Ubicacion {
+  idUbicacion Int      @id @default(autoincrement()) @map("id_ubicacion")
+  ciudad      String?  @db.Text
+  direccion   String?  @db.Text
+  mapsUrl     String?  @map("maps_url") @db.Text
+  aprobado    String?  @db.Text
+  fuente      String?  @db.Text
+  horario     String?  @db.Text
+  contacto    String?  @db.Text
+  estadoId    Int      @map("estado_id") @db.SmallInt
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  estado Estado @relation(fields: [estadoId], references: [id])
+
+  @@map("locations")
+}
+
+model Garantia {
+  idGarantia        Int      @id @default(autoincrement()) @map("id_garantia")
+  garantiaMeses     Int?     @map("garantia_meses")
+  garantiaEspecial  String?  @map("garantia_especial") @db.Text
+  observaciones     String?  @db.Text
+  fuenteUrl         String?  @map("fuente_url") @db.Text
+  estadoId          Int      @map("estado_id") @db.SmallInt
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  estado   Estado             @relation(fields: [estadoId], references: [id])
+  variants ProductoVariante[]
+
+  @@map("warranties")
+}
+
+model Documento {
+  id             BigInt   @id @default(autoincrement())
+  externalId     String?  @map("external_id") @db.Text
+  title          String?  @db.Text
+  content        String   @db.Text
+  metadata       Json     @default("{}") @db.JsonB
+  source         String?  @db.Text
+  sourceVersion  String?  @map("source_version") @db.Text
+  isActive       Boolean  @default(true) @map("is_active")
+  chunkIndex     Int      @default(0) @map("chunk_index")
+  embeddingModel String?  @map("embedding_model") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("documents")
+}
