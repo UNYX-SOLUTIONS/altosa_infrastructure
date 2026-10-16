@@ -6,7 +6,9 @@ set -a
 source .env
 set +a
 ./scripts/configure-traefik-pgadmin.sh "${PGADMIN_PUBLIC_PORT:-5050}"
-docker compose pull
+# --ignore-pull-failures: altosa-api se construye local (build:) y no existe
+# en un registro; postgres/pgadmin sí se actualizan desde Docker Hub.
+docker compose pull --ignore-pull-failures
 # --build reconstruye altosa-api con el código actual; postgres/pgadmin siguen
 # usando sus imágenes. Los volúmenes (datos y uploads) NO se tocan.
 docker compose up -d --build
