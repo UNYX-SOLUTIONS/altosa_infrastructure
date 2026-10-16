@@ -35,6 +35,14 @@ services:
       - "80"
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=altosa_backend"
+      # Acceso por dominio con HTTPS (ej. https://dbglobal.altosamobiliario.com)
+      - "traefik.http.routers.altosa-pgadmin-web.rule=Host(`${PGADMIN_PUBLIC_DOMAIN:-dbglobal.altosamobiliario.com}`)"
+      - "traefik.http.routers.altosa-pgadmin-web.entrypoints=websecure"
+      - "traefik.http.routers.altosa-pgadmin-web.tls=true"
+      - "traefik.http.routers.altosa-pgadmin-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.altosa-pgadmin-web.service=altosa-pgadmin"
+      # Acceso directo por IP usando el entrypoint dedicado (http://IP:5050)
       - "traefik.http.routers.altosa-pgadmin.rule=PathPrefix(`/`)"
       - "traefik.http.routers.altosa-pgadmin.entrypoints=pgadmin"
       - "traefik.http.services.altosa-pgadmin.loadbalancer.server.port=80"
