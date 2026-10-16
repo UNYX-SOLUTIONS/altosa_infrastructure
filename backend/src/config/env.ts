@@ -6,6 +6,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4100),
   DATABASE_URL: z.string().min(1),
   API_KEY: z.string().min(16),
+  UPLOAD_DIR: z.string().min(1).default('uploads'),
+  PUBLIC_URL_BASE: z.string().url().default('http://localhost:4100'),
 });
 
 const parsed = envSchema.safeParse(process.env);

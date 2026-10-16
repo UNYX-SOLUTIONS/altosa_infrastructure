@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
+import multer from 'multer';
 import { ZodError } from 'zod';
 import { logger } from '../config/logger';
 import { env } from '../config/env';
@@ -25,6 +26,19 @@ export function errorMiddleware(
       message: 'Parámetros inválidos.',
       code: 'ALTOSA_API_VALIDATION_ERROR',
       details: error.flatten().fieldErrors,
+    });
+    return;
+  }
+
+  if (error instanceof multer.MulterError) {
+    const message =
+      error.code === 'LIMIT_FILE_SIZE'
+        ? 'La imagen supera el tamaño máximo permitido (5 MB).'
+        : `Error al subir el archivo: ${error.message}`;
+    res.status(StatusCodes.BAD_REQUEST).json({
+      success: false,
+      message,
+      code: 'ALTOSA_UPLOAD_ERROR',
     });
     return;
   }

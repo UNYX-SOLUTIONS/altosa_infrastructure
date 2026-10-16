@@ -3,6 +3,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { StatusCodes } from 'http-status-codes';
 import pinoHttp from 'pino-http';
+import { env } from './config/env';
 import { logger } from './config/logger';
 import { getPrisma } from './config/prisma';
 import { apiKeyMiddleware } from './middlewares/api-key-middleware';
@@ -20,6 +21,17 @@ app.use(helmet());
 app.use(compression());
 app.use(pinoHttp({ logger }));
 app.use(express.json({ limit: '100kb' }));
+
+// Imágenes subidas (URLs públicas por diseño; se exponen vía Traefik en el VPS).
+app.use(
+  '/uploads',
+  express.static(env.UPLOAD_DIR, {
+    maxAge: '30d',
+    immutable: true,
+    index: false,
+    fallthrough: true,
+  })
+);
 
 app.get('/health', async (_req, res) => {
   try {

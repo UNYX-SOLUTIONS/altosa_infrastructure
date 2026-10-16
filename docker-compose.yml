@@ -42,9 +42,10 @@ services:
       postgres:
         condition: service_healthy
 
-  # API interna de solo lectura sobre la base de datos del cliente.
+  # API interna de solo lectura/CRUD sobre la base de datos del cliente.
   # NO publica puertos: solo es alcanzable desde la red altosa_backend
-  # (backend del ERP Unyx, n8n, etc.).
+  # (backend del ERP Unyx, n8n, etc.). La ruta pública /uploads (imágenes de
+  # variantes) se expone vía Traefik sobre el dominio del ERP de pruebas.
   api:
     build:
       context: ./backend
@@ -56,11 +57,25 @@ services:
       PORT: 4100
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@altosa-postgres:5432/${POSTGRES_DB}?schema=public
       API_KEY: ${ALTOSA_API_KEY:?Define ALTOSA_API_KEY en .env}
+      UPLOAD_DIR: /data/uploads
+      PUBLIC_URL_BASE: ${ALTOSA_PUBLIC_URL_BASE:?Define ALTOSA_PUBLIC_URL_BASE en .env}
+    volumes:
+      - uploads_data:/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - altosa_backend
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-unyx-workspace-front}"
+      - "traefik.http.routers.altosa-files.rule=Host(`${ALTOSA_PUBLIC_DOMAIN:-altosa-test.erp.unyxsolutions.com}`) && PathPrefix(`/uploads`)"
+      - "traefik.http.routers.altosa-files.entrypoints=websecure"
+      - "traefik.http.routers.altosa-files.tls=true"
+      - "traefik.http.routers.altosa-files.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.altosa-files.priority=200"
+      - "traefik.http.services.altosa-files.loadbalancer.server.port=4100"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4100/health > /dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -72,9 +87,15 @@ networks:
   altosa_backend:
     external: true
     name: altosa_backend
+  # Red donde vive Traefik (misma que usa el ERP de pruebas)
+  traefik:
+    name: ${TRAEFIK_NETWORK:-unyx-workspace-front}
+    external: true
 
 volumes:
   postgres_data:
     name: altosa_postgres_data
   pgadmin_data:
     name: altosa_pgadmin_data
+  uploads_data:
+    name: altosa_uploads_data

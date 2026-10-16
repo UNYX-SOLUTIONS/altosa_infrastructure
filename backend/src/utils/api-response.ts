@@ -7,8 +7,8 @@ export interface PaginationMeta {
   totalPages: number;
 }
 
-export function sendSuccess<T>(res: Response, data: T, meta?: PaginationMeta): void {
-  res.status(200).json({ success: true, data, meta });
+export function sendSuccess<T>(res: Response, data: T, meta?: PaginationMeta, status = 200): void {
+  res.status(status).json({ success: true, data, meta });
 }
 
 export function buildMeta(page: number, pageSize: number, total: number): PaginationMeta {

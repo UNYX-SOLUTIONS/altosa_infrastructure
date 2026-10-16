@@ -42,6 +42,65 @@ export const simpleListQuerySchema = z.object({
   active: booleanQuery,
 });
 
+const optionalUrl = z.string().trim().url().max(500).optional().or(z.literal(''));
+
+export const variantBodySchema = z.object({
+  sku: z.string().trim().max(80).optional(),
+  color: z.string().trim().max(80).optional(),
+  descripcion: z.string().trim().max(2000).optional(),
+  precioUsd: z.coerce.number().min(0).max(1_000_000).optional(),
+  material: z.string().trim().max(200).optional(),
+  tapizado: z.string().trim().max(200).optional(),
+  estructura: z.string().trim().max(200).optional(),
+  mecanismo: z.string().trim().max(200).optional(),
+  proteccionUv: z.string().trim().max(200).optional(),
+  resistenciaIntemperie: z.string().trim().max(200).optional(),
+  apilable: z.string().trim().max(100).optional(),
+  brazos: z.string().trim().max(200).optional(),
+  soporteLumbar: z.string().trim().max(200).optional(),
+  cabecera: z.string().trim().max(200).optional(),
+  usoRecomendado: z.string().trim().max(500).optional(),
+  especificacionesAdicionales: z.string().trim().max(2000).optional(),
+  imagenUrl: optionalUrl,
+  urlProducto: optionalUrl,
+  anchoTotalCm: z.coerce.number().min(0).max(100000).optional(),
+  profundidadAsientoCm: z.coerce.number().min(0).max(100000).optional(),
+  alturaTotalCm: z.string().trim().max(50).optional(),
+  alturaAsientoCm: z.string().trim().max(50).optional(),
+  anchoAsientoCm: z.coerce.number().min(0).max(100000).optional(),
+  pesoKg: z.coerce.number().min(0).max(100000).optional(),
+  garantiaId: z.coerce.number().int().positive().optional(),
+  catalogoId: z.coerce.number().int().positive().optional(),
+  estadoId: z.coerce.number().int().positive().max(32767).optional(),
+});
+
+export const updateVariantBodySchema = variantBodySchema.partial().extend({
+  isActive: z.boolean().optional(),
+});
+
+export const createProductBodySchema = z.object({
+  nombre: z.string().trim().min(1).max(200),
+  descripcion: z.string().trim().max(2000).optional(),
+  usoRecomendado: z.string().trim().max(500).optional(),
+  subcategoryId: z.coerce.number().int().positive(),
+  estadoId: z.coerce.number().int().positive().max(32767).optional().default(1),
+  variantes: z.array(variantBodySchema).max(100).optional().default([]),
+});
+
+export const updateProductBodySchema = z.object({
+  nombre: z.string().trim().min(1).max(200).optional(),
+  descripcion: z.string().trim().max(2000).nullable().optional(),
+  usoRecomendado: z.string().trim().max(500).nullable().optional(),
+  subcategoryId: z.coerce.number().int().positive().optional(),
+  estadoId: z.coerce.number().int().positive().max(32767).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export type VariantBody = z.infer<typeof variantBodySchema>;
+export type UpdateVariantBody = z.infer<typeof updateVariantBodySchema>;
+export type CreateProductBody = z.infer<typeof createProductBodySchema>;
+export type UpdateProductBody = z.infer<typeof updateProductBodySchema>;
+
 export type ProductsQuery = z.infer<typeof productsQuerySchema>;
 export type DocumentsQuery = z.infer<typeof documentsQuerySchema>;
 export type SimpleListQuery = z.infer<typeof simpleListQuerySchema>;

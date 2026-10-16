@@ -6,3 +6,4 @@ backups/*
 *.backup
 node_modules/
 dist/
+backend/uploads/

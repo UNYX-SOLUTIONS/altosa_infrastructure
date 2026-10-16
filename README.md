@@ -73,10 +73,12 @@ pnpm prisma generate
 pnpm dev
 ```
 
-Restaurar el dump localmente (contenedor temporales pgvector/pg16):
+Restaurar el dump localmente (contenedor temporal de pgvector/pg16):
 
 ```powershell
-docker run -d --name altosa-restore -e POSTGRES_USER=altosa_admin -e POSTGRES_PASSWORD=temp_restore -e POSTGRES_DB=altosa -p 5499:5432 -v "<ruta sql>:/dump" pgvector/pgvector:pg16
+docker run -d --name altosa-restore --restart unless-stopped -e POSTGRES_USER=altosa_admin -e POSTGRES_PASSWORD=temp_restore -e POSTGRES_DB=altosa -p 5499:5432 -v "<ruta sql>:/dump" pgvector/pgvector:pg16
 docker exec altosa-restore psql -U altosa_admin -d altosa -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION IF NOT EXISTS vector;"
 docker exec altosa-restore pg_restore -U altosa_admin -d altosa --no-owner --role=altosa_admin /dump/altosa_2026-10-15.schema.backup
+# Importante: avanza las secuencias de identidad (si no, los INSERT nuevos chocan con ids existentes):
+docker exec altosa-restore psql -U altosa_admin -d altosa -c "SELECT setval(pg_get_serial_sequence('products','id_producto'), (SELECT max(id_producto) FROM products)); SELECT setval(pg_get_serial_sequence('product_variants','id_variante'), (SELECT max(id_variante) FROM product_variants)); SELECT setval(pg_get_serial_sequence('documents','id'), (SELECT max(id) FROM documents));"
 ```

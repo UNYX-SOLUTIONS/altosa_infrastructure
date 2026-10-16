@@ -1,11 +1,16 @@
 import type { Request, Response } from 'express';
+import { StatusCodes } from 'http-status-codes';
 import { buildMeta, sendSuccess } from '../../utils/api-response';
 import {
+  createProductBodySchema,
   documentsQuerySchema,
   idParamSchema,
   productsQuerySchema,
   simpleListQuerySchema,
   skuParamSchema,
+  updateProductBodySchema,
+  updateVariantBodySchema,
+  variantBodySchema,
 } from './catalog-schema';
 import * as catalogService from './catalog-service';
 
@@ -54,4 +59,47 @@ export async function listDocuments(req: Request, res: Response): Promise<void> 
   const query = documentsQuerySchema.parse(req.query);
   const { items, total } = await catalogService.listDocuments(query);
   sendSuccess(res, items, buildMeta(query.page, query.pageSize, total));
+}
+
+// ---------------------------------------------------------------------------
+// Escritura
+// ---------------------------------------------------------------------------
+
+export async function createProduct(req: Request, res: Response): Promise<void> {
+  const input = createProductBodySchema.parse(req.body);
+  const producto = await catalogService.createProduct(input);
+  sendSuccess(res, producto, undefined, StatusCodes.CREATED);
+}
+
+export async function updateProduct(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const input = updateProductBodySchema.parse(req.body);
+  const producto = await catalogService.updateProduct(id, input);
+  sendSuccess(res, producto);
+}
+
+export async function deleteProduct(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const producto = await catalogService.deactivateProduct(id);
+  sendSuccess(res, producto);
+}
+
+export async function createVariant(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const input = variantBodySchema.parse(req.body);
+  const variante = await catalogService.createVariant(id, input);
+  sendSuccess(res, variante, undefined, StatusCodes.CREATED);
+}
+
+export async function updateVariant(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const input = updateVariantBodySchema.parse(req.body);
+  const variante = await catalogService.updateVariant(id, input);
+  sendSuccess(res, variante);
+}
+
+export async function deleteVariant(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const variante = await catalogService.deactivateVariant(id);
+  sendSuccess(res, variante);
 }
