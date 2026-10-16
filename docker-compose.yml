@@ -66,19 +66,21 @@ services:
         condition: service_healthy
     networks:
       - altosa_backend
-      - traefik
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-unyx-workspace-front}"
-      - "traefik.http.routers.altosa-files.rule=Host(`${ALTOSA_PUBLIC_DOMAIN:-altosa-test.erp.unyxsolutions.com}`) && PathPrefix(`/uploads`)"
-      - "traefik.http.routers.altosa-files.entrypoints=websecure"
-      - "traefik.http.routers.altosa-files.tls=true"
-      - "traefik.http.routers.altosa-files.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.altosa-files.priority=200"
-      - "traefik.http.routers.altosa-files.middlewares=altosa-files-ratelimit"
-      - "traefik.http.middlewares.altosa-files-ratelimit.ratelimit.average=100"
-      - "traefik.http.middlewares.altosa-files-ratelimit.ratelimit.burst=200"
-      - "traefik.http.services.altosa-files.loadbalancer.server.port=4100"
+      # Traefik (host-mode) alcanza la IP del contenedor en su red bridge.
+      - "traefik.docker.network=altosa_backend"
+      # API + imágenes bajo el subdominio del cliente (HTTPS).
+      # El ERP Unyx (otro VPS) consume /api/v1 con x-api-key; /uploads es público.
+      - "traefik.http.routers.altosa-api.rule=Host(`${ALTOSA_PUBLIC_DOMAIN:-api.altosamobiliario.com}`)"
+      - "traefik.http.routers.altosa-api.entrypoints=websecure"
+      - "traefik.http.routers.altosa-api.tls=true"
+      - "traefik.http.routers.altosa-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.altosa-api.priority=300"
+      - "traefik.http.routers.altosa-api.middlewares=altosa-api-ratelimit"
+      - "traefik.http.middlewares.altosa-api-ratelimit.ratelimit.average=50"
+      - "traefik.http.middlewares.altosa-api-ratelimit.ratelimit.burst=100"
+      - "traefik.http.services.altosa-api.loadbalancer.server.port=4100"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4100/health > /dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -90,10 +92,6 @@ networks:
   altosa_backend:
     external: true
     name: altosa_backend
-  # Red donde vive Traefik (misma que usa el ERP de pruebas)
-  traefik:
-    name: ${TRAEFIK_NETWORK:-unyx-workspace-front}
-    external: true
 
 volumes:
   postgres_data:
