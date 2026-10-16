@@ -33,7 +33,7 @@ export function errorMiddleware(
   if (error instanceof multer.MulterError) {
     const message =
       error.code === 'LIMIT_FILE_SIZE'
-        ? 'La imagen supera el tamaño máximo permitido (5 MB).'
+        ? 'La imagen supera el tamaño máximo permitido (10 MB).'
         : `Error al subir el archivo: ${error.message}`;
     res.status(StatusCodes.BAD_REQUEST).json({
       success: false,

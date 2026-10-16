@@ -75,6 +75,9 @@ services:
       - "traefik.http.routers.altosa-files.tls=true"
       - "traefik.http.routers.altosa-files.tls.certresolver=letsencrypt"
       - "traefik.http.routers.altosa-files.priority=200"
+      - "traefik.http.routers.altosa-files.middlewares=altosa-files-ratelimit"
+      - "traefik.http.middlewares.altosa-files-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.altosa-files-ratelimit.ratelimit.burst=200"
       - "traefik.http.services.altosa-files.loadbalancer.server.port=4100"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4100/health > /dev/null 2>&1 || exit 1"]
