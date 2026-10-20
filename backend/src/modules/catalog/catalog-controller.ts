@@ -8,6 +8,7 @@ import {
   productsQuerySchema,
   simpleListQuerySchema,
   skuParamSchema,
+  syncProductsBodySchema,
   updateProductBodySchema,
   updateVariantBodySchema,
   variantBodySchema,
@@ -102,4 +103,10 @@ export async function deleteVariant(req: Request, res: Response): Promise<void> 
   const { id } = idParamSchema.parse(req.params);
   const variante = await catalogService.deactivateVariant(id);
   sendSuccess(res, variante);
+}
+
+export async function syncProducts(req: Request, res: Response): Promise<void> {
+  const { items, matchByName } = syncProductsBodySchema.parse(req.body);
+  const result = await catalogService.syncProducts(items, { matchByName });
+  sendSuccess(res, result);
 }

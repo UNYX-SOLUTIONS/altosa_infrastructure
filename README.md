@@ -54,9 +54,11 @@ No ejecutes `docker compose down -v` si quieres conservar la información.
 
 ## API interna (altosa-api)
 
-Servicio de solo lectura sobre la base de datos del cliente (`backend/`), consumido por el backend del ERP Unyx (patrón BFF). No publica puertos: solo es alcanzable dentro de la red Docker `altosa_backend`.
+Servicio de lectura sobre la base de datos del cliente (`backend/`) con endpoints de sincronización de productos, consumido por el backend del ERP Unyx (patrón BFF). No publica puertos: solo es alcanzable dentro de la red Docker `altosa_backend`.
 
 - Endpoints: `/health` (sin key) y `/api/v1/{products, products/:id, products/sku/:sku, categories, catalogs, locations, warranties, documents}`.
+- Sincronización desde Contifico/ERP: `POST /api/v1/sync/products` (upsert idempotente por SKU de variante, máx. 100 ítems por lote). Ver `docs/integracion-contifico.md` en el repo del ERP.
+- Seed offline desde un export del ERP: `pnpm seed:products -- data/contifico-products.json` (procesa en lotes de 100).
 - Autenticación: header `x-api-key` con `ALTOSA_API_KEY` de `.env`.
 - En `.env` agregar: `ALTOSA_API_KEY=<openssl rand -hex 32>` (la misma clave se configura en el backend del ERP).
 - Build/levantar: `docker compose build api && docker compose up -d api` (o `./update.sh`).

@@ -7,6 +7,7 @@ import type {
   DocumentsQuery,
   ProductsQuery,
   SimpleListQuery,
+  SyncProductBody,
   UpdateProductBody,
   UpdateVariantBody,
   VariantBody,
@@ -689,4 +690,275 @@ export async function updateVariant(variantId: number, input: UpdateVariantBody)
 
 export async function deactivateVariant(variantId: number) {
   return updateVariant(variantId, { isActive: false });
+}
+
+// ---------------------------------------------------------------------------
+// Sincronización desde Contifico (ERP -> Altosa)
+// ---------------------------------------------------------------------------
+
+interface SyncProductsResult {
+  productsCreated: number;
+  productsUpdated: number;
+  variantsCreated: number;
+  variantsUpdated: number;
+}
+
+interface ResolvedEstados {
+  activeId: number;
+  inactiveId: number;
+}
+
+async function resolveSyncEstados(): Promise<ResolvedEstados> {
+  const estados = await getPrisma().estado.findMany({ orderBy: { id: 'asc' } });
+  if (estados.length === 0) {
+    throw new HttpError(
+      StatusCodes.PRECONDITION_FAILED,
+      'No hay estados configurados en la base de datos de Altosa.',
+      'ALTOSA_ESTADOS_NOT_CONFIGURED'
+    );
+  }
+
+  const active =
+    estados.find((estado) => estado.permiteRag) ??
+    estados.find((estado) => /activ|aprob/i.test(estado.estado)) ??
+    estados[0]!;
+  const inactive =
+    estados.find((estado) => /inactiv|desactiv/i.test(estado.estado)) ?? active;
+
+  return { activeId: active.id, inactiveId: inactive.id };
+}
+
+function normalizeSyncVariant(input: SyncProductBody['variantes'][number]) {
+  return {
+    sku: input.sku,
+    color: input.color?.trim() || null,
+    descripcion: input.descripcion?.trim() || null,
+    precioUsd: input.precioUsd ?? null,
+    imagenUrl: input.imagenUrl?.trim() || null,
+    especificaciones: input.especificaciones ?? {},
+  };
+}
+
+/**
+ * Conserva especificaciones que ya existían en Altosa (texto plano o JSON de
+ * enriquecimiento) y agrega/actualiza las claves que vienen de Contifico.
+ */
+function mergeSyncSpecs(
+  existing: string | null | undefined,
+  incoming: Record<string, unknown>
+): string | null {
+  if (Object.keys(incoming).length === 0 && !existing) {
+    return null;
+  }
+
+  let base: Record<string, unknown> = {};
+  if (existing) {
+    try {
+      const parsed = JSON.parse(existing) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        base = parsed as Record<string, unknown>;
+      } else {
+        base = { especificaciones_originales: existing };
+      }
+    } catch {
+      base = { especificaciones_originales: existing };
+    }
+  }
+
+  return JSON.stringify({ ...base, ...incoming });
+}
+
+/**
+ * Upsert idempotente por SKU de variante. Es la contraparte del endpoint
+ * POST /api/v1/sync/products y también lo usa el seed offline.
+ */
+export async function syncProducts(
+  items: SyncProductBody[],
+  options: { matchByName?: boolean } = {}
+): Promise<SyncProductsResult> {
+  const prisma = getPrisma();
+  const matchByName = options.matchByName ?? false;
+  const estados = await resolveSyncEstados();
+  const now = new Date();
+  const result: SyncProductsResult = {
+    productsCreated: 0,
+    productsUpdated: 0,
+    variantsCreated: 0,
+    variantsUpdated: 0,
+  };
+
+  for (const item of items) {
+    const categoria =
+      (await prisma.categoria.findFirst({
+        where: { nombre: { equals: item.categoria.trim(), mode: 'insensitive' } },
+      })) ??
+      (await prisma.categoria.create({
+        data: { nombre: item.categoria.trim(), updatedAt: now },
+      }));
+
+    const subcategoriaNombre = item.subcategoria?.trim() || 'General';
+    const subcategoria =
+      (await prisma.subcategoria.findFirst({
+        where: {
+          idCategoria: categoria.id,
+          nombre: { equals: subcategoriaNombre, mode: 'insensitive' },
+        },
+      })) ??
+      (await prisma.subcategoria.create({
+        data: {
+          idCategoria: categoria.id,
+          nombre: subcategoriaNombre,
+          updatedAt: now,
+        },
+      }));
+
+    const estadoId =
+      item.estado === 'I' ? estados.inactiveId : estados.activeId;
+    const isActive = item.estado !== 'I';
+    const variantes =
+      item.variantes.length > 0
+        ? item.variantes.map(normalizeSyncVariant)
+        : [
+            {
+              sku: item.codigo,
+              color: 'Estándar',
+              descripcion: item.descripcion?.trim() || null,
+              precioUsd: null,
+              imagenUrl: null,
+              especificaciones: {},
+            },
+          ];
+
+    const primarySku = variantes[0]!.sku;
+    const existingVariant = await prisma.productoVariante.findFirst({
+      where: { sku: primarySku },
+      select: { idProducto: true },
+    });
+
+    let productId = existingVariant?.idProducto ?? null;
+    let mergePrimaryVariant: {
+      idVariante: number;
+      color: string | null;
+      descripcion: string | null;
+      imagenUrl: string | null;
+      especificacionesAdicionales: string | null;
+    } | null = null;
+
+    if (productId === null) {
+      const existingProduct = await prisma.producto.findFirst({
+        where: {
+          producto: { equals: item.nombre.trim(), mode: 'insensitive' },
+          ...(matchByName ? {} : { subcategoria: { idCategoria: categoria.id } }),
+        },
+        select: {
+          idProducto: true,
+          variants: {
+            select: {
+              idVariante: true,
+              color: true,
+              descripcion: true,
+              imagenUrl: true,
+              especificacionesAdicionales: true,
+            },
+          },
+        },
+        orderBy: { idProducto: 'asc' },
+      });
+      productId = existingProduct?.idProducto ?? null;
+
+      // Migración inicial desde Altosa: si el producto existe por nombre y
+      // tiene una sola variante, reutilizamos esa variante cambiándole el SKU
+      // en lugar de crear una variante duplicada.
+      if (existingProduct && existingProduct.variants.length === 1) {
+        mergePrimaryVariant = existingProduct.variants[0]!;
+      }
+    }
+
+    if (productId === null) {
+      const created = await prisma.producto.create({
+        data: {
+          idSubCategoria: subcategoria.id,
+          producto: item.nombre.trim(),
+          descripcion: item.descripcion?.trim() || null,
+          usoRecomendado: item.usoRecomendado?.trim() || null,
+          estadoId,
+          isActive,
+          updatedAt: now,
+        },
+      });
+      productId = created.idProducto;
+      result.productsCreated += 1;
+    } else {
+      await prisma.producto.update({
+        where: { idProducto: productId },
+        data: {
+          producto: item.nombre.trim(),
+          // La taxonomía de Altosa es curada por el equipo de IA: el sync
+          // masivo de Contifico conserva categoría/subcategoría. Solo un
+          // update explícito del ERP (updateTaxonomy) puede mover el producto.
+          ...(item.updateTaxonomy ? { idSubCategoria: subcategoria.id } : {}),
+          // Si Contifico no trae descripción, no borramos el enriquecimiento
+          // que ya existía en Altosa.
+          ...(item.descripcion?.trim()
+            ? { descripcion: item.descripcion.trim() }
+            : {}),
+          ...(item.usoRecomendado?.trim()
+            ? { usoRecomendado: item.usoRecomendado.trim() }
+            : {}),
+          estadoId,
+          isActive,
+          updatedAt: now,
+        },
+      });
+      result.productsUpdated += 1;
+    }
+
+    for (const [variantIndex, variante] of variantes.entries()) {
+      const existingBySku = await prisma.productoVariante.findFirst({
+        where: { sku: variante.sku },
+        select: {
+          idVariante: true,
+          color: true,
+          descripcion: true,
+          imagenUrl: true,
+          especificacionesAdicionales: true,
+        },
+      });
+      const existing =
+        existingBySku ?? (variantIndex === 0 ? mergePrimaryVariant : null);
+
+      const data = {
+        idProducto: productId,
+        sku: variante.sku,
+        color: variante.color ?? existing?.color ?? null,
+        descripcion: variante.descripcion ?? existing?.descripcion ?? null,
+        precioUsd: variante.precioUsd,
+        imagenUrl: variante.imagenUrl ?? existing?.imagenUrl ?? null,
+        especificacionesAdicionales: mergeSyncSpecs(
+          existing?.especificacionesAdicionales,
+          variante.especificaciones
+        ),
+        estadoId,
+        isActive,
+        updatedAt: now,
+      };
+
+      if (existing) {
+        await prisma.productoVariante.update({
+          where: { idVariante: existing.idVariante },
+          data,
+        });
+        result.variantsUpdated += 1;
+      } else {
+        await prisma.productoVariante.create({ data });
+        result.variantsCreated += 1;
+      }
+
+      if (variantIndex === 0) {
+        mergePrimaryVariant = null;
+      }
+    }
+  }
+
+  return result;
 }

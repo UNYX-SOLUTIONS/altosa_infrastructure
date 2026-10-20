@@ -96,6 +96,35 @@ export const updateProductBodySchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+export const syncVariantBodySchema = z.object({
+  sku: z.string().trim().min(1).max(80),
+  color: z.string().trim().max(80).nullable().optional(),
+  descripcion: z.string().trim().max(2000).nullable().optional(),
+  precioUsd: z.number().min(0).max(1_000_000).nullable().optional(),
+  imagenUrl: optionalUrl.nullable().optional(),
+  especificaciones: z.record(z.unknown()).nullable().optional(),
+});
+
+export const syncProductBodySchema = z.object({
+  codigo: z.string().trim().min(1).max(80),
+  nombre: z.string().trim().min(1).max(300),
+  descripcion: z.string().trim().max(2000).nullable().optional(),
+  usoRecomendado: z.string().trim().max(500).nullable().optional(),
+  categoria: z.string().trim().min(1).max(300),
+  subcategoria: z.string().trim().max(300).nullable().optional(),
+  estado: z.enum(['A', 'I']).default('A'),
+  updateTaxonomy: z.boolean().optional().default(false),
+  variantes: z.array(syncVariantBodySchema).max(100).default([]),
+});
+
+export const syncProductsBodySchema = z.object({
+  items: z.array(syncProductBodySchema).min(1).max(100),
+  matchByName: z.boolean().optional().default(false),
+});
+
+export type SyncVariantBody = z.infer<typeof syncVariantBodySchema>;
+export type SyncProductBody = z.infer<typeof syncProductBodySchema>;
+
 export type VariantBody = z.infer<typeof variantBodySchema>;
 export type UpdateVariantBody = z.infer<typeof updateVariantBodySchema>;
 export type CreateProductBody = z.infer<typeof createProductBodySchema>;

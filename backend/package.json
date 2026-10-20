@@ -2,7 +2,7 @@
   "name": "altosa-api",
   "version": "1.0.0",
   "private": true,
-  "description": "API interna de solo lectura sobre la base de datos del cliente Altosa (catálogo/KB). Consumida únicamente por el backend del ERP Unyx.",
+  "description": "API interna sobre la base de datos del cliente Altosa (catálogo/KB) con endpoints de lectura y sincronización de productos. Consumida únicamente por el backend del ERP Unyx.",
   "packageManager": "pnpm@9.1.0",
   "main": "dist/server.js",
   "scripts": {
@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate",
+    "seed:products": "tsx src/scripts/seed-products.ts"
   },
   "dependencies": {
     "@prisma/client": "5.14.0",
