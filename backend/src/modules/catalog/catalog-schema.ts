@@ -122,6 +122,10 @@ export const syncProductsBodySchema = z.object({
   matchByName: z.boolean().optional().default(false),
 });
 
+export const syncDeactivateBodySchema = z.object({
+  skus: z.array(z.string().trim().min(1).max(80)).min(1).max(500),
+});
+
 export type SyncVariantBody = z.infer<typeof syncVariantBodySchema>;
 export type SyncProductBody = z.infer<typeof syncProductBodySchema>;
 

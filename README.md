@@ -58,7 +58,8 @@ Servicio de lectura sobre la base de datos del cliente (`backend/`) con endpoint
 
 - Endpoints: `/health` (sin key) y `/api/v1/{products, products/:id, products/sku/:sku, categories, catalogs, locations, warranties, documents}`.
 - Sincronización desde Contifico/ERP: `POST /api/v1/sync/products` (upsert idempotente por SKU de variante, máx. 100 ítems por lote). Ver `docs/integracion-contifico.md` en el repo del ERP.
-- Seed offline desde un export del ERP: `pnpm seed:products -- data/contifico-products.json` (procesa en lotes de 100).
+- Reconciliación: `POST /api/v1/sync/products/deactivate` con `{ skus: [...] }` (máx. 500); desactiva variantes y el producto si se queda sin variantes activas.
+- Seed offline desde un export del ERP: `pnpm seed:products -- data/contifico-products.json` (procesa en lotes de 100 y aplica `deactivateSkus` si viene en el export).
 - Autenticación: header `x-api-key` con `ALTOSA_API_KEY` de `.env`.
 - En `.env` agregar: `ALTOSA_API_KEY=<openssl rand -hex 32>` (la misma clave se configura en el backend del ERP).
 - Build/levantar: `docker compose build api && docker compose up -d api` (o `./update.sh`).

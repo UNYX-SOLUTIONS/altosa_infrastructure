@@ -13,8 +13,8 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { disconnectPrisma } from '../config/prisma';
-import { syncProductsBodySchema } from '../modules/catalog/catalog-schema';
-import { syncProducts } from '../modules/catalog/catalog-service';
+import { syncDeactivateBodySchema, syncProductsBodySchema } from '../modules/catalog/catalog-schema';
+import { deactivateProductsBySku, syncProducts } from '../modules/catalog/catalog-service';
 
 const BATCH_SIZE = 100;
 
@@ -23,10 +23,19 @@ interface SeedResult {
   productsUpdated: number;
   variantsCreated: number;
   variantsUpdated: number;
+  variantsDeactivated: number;
+  productsDeactivated: number;
 }
 
 function emptyResult(): SeedResult {
-  return { productsCreated: 0, productsUpdated: 0, variantsCreated: 0, variantsUpdated: 0 };
+  return {
+    productsCreated: 0,
+    productsUpdated: 0,
+    variantsCreated: 0,
+    variantsUpdated: 0,
+    variantsDeactivated: 0,
+    productsDeactivated: 0,
+  };
 }
 
 async function main(): Promise<void> {
@@ -74,10 +83,35 @@ async function main(): Promise<void> {
     );
   }
 
+  const deactivateSkus =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as { deactivateSkus?: unknown }).deactivateSkus
+      : undefined;
+
+  if (Array.isArray(deactivateSkus) && deactivateSkus.length > 0) {
+    const DEACTIVATE_BATCH_SIZE = 500;
+    for (let index = 0; index < deactivateSkus.length; index += DEACTIVATE_BATCH_SIZE) {
+      const chunk = deactivateSkus.slice(index, index + DEACTIVATE_BATCH_SIZE);
+      const parsed = syncDeactivateBodySchema.safeParse({ skus: chunk });
+      if (!parsed.success) {
+        console.error(
+          `Lista de SKUs a desactivar inválida en el lote ${index / DEACTIVATE_BATCH_SIZE + 1}:`,
+          parsed.error.flatten()
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const batch = await deactivateProductsBySku(parsed.data.skus);
+      result.variantsDeactivated += batch.variantsDeactivated;
+      result.productsDeactivated += batch.productsDeactivated;
+    }
+  }
+
   console.log(
     `Seed completado: ${result.productsCreated} productos creados, ` +
       `${result.productsUpdated} productos actualizados, ` +
-      `${result.variantsCreated} variantes creadas, ${result.variantsUpdated} variantes actualizadas.`
+      `${result.variantsCreated} variantes creadas, ${result.variantsUpdated} variantes actualizadas, ` +
+      `${result.variantsDeactivated} variantes desactivadas, ${result.productsDeactivated} productos desactivados.`
   );
 }
 

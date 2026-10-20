@@ -962,3 +962,61 @@ export async function syncProducts(
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Reconciliación: desactivar SKUs que ya no existen en Contifico
+// ---------------------------------------------------------------------------
+
+export interface DeactivateProductsResult {
+  variantsDeactivated: number;
+  productsDeactivated: number;
+}
+
+/**
+ * Desactiva variantes por SKU y, si un producto se queda sin variantes
+ * activas, desactiva también el producto. Es idempotente.
+ */
+export async function deactivateProductsBySku(
+  skus: string[]
+): Promise<DeactivateProductsResult> {
+  const prisma = getPrisma();
+  const normalized = Array.from(
+    new Set(skus.map((sku) => sku.trim()).filter((sku) => sku.length > 0))
+  );
+  if (normalized.length === 0) {
+    return { variantsDeactivated: 0, productsDeactivated: 0 };
+  }
+
+  const estados = await resolveSyncEstados();
+  const now = new Date();
+  const variants = await prisma.productoVariante.findMany({
+    where: { sku: { in: normalized } },
+    select: { idVariante: true, idProducto: true },
+  });
+
+  if (variants.length === 0) {
+    return { variantsDeactivated: 0, productsDeactivated: 0 };
+  }
+
+  await prisma.productoVariante.updateMany({
+    where: { idVariante: { in: variants.map((variant) => variant.idVariante) } },
+    data: { isActive: false, estadoId: estados.inactiveId, updatedAt: now },
+  });
+
+  let productsDeactivated = 0;
+  const productIds = Array.from(new Set(variants.map((variant) => variant.idProducto)));
+  for (const idProducto of productIds) {
+    const activeVariants = await prisma.productoVariante.count({
+      where: { idProducto, isActive: true },
+    });
+    if (activeVariants === 0) {
+      const result = await prisma.producto.updateMany({
+        where: { idProducto, isActive: true },
+        data: { isActive: false, estadoId: estados.inactiveId, updatedAt: now },
+      });
+      productsDeactivated += result.count;
+    }
+  }
+
+  return { variantsDeactivated: variants.length, productsDeactivated };
+}

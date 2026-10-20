@@ -5,6 +5,7 @@ import * as catalogController from './catalog-controller';
 export const catalogRouter = Router();
 
 catalogRouter.post('/sync/products', asyncHandler(catalogController.syncProducts));
+catalogRouter.post('/sync/products/deactivate', asyncHandler(catalogController.deactivateProducts));
 
 catalogRouter.get('/products', asyncHandler(catalogController.listProducts));
 catalogRouter.get('/products/sku/:sku', asyncHandler(catalogController.getProductBySku));
