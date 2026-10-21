@@ -7,3 +7,6 @@ backups/*
 node_modules/
 dist/
 backend/uploads/
+# Migraciones SQL versionadas (no son dumps)
+!backend/prisma/sql/
+!backend/prisma/sql/*.sql

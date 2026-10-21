@@ -68,6 +68,9 @@ PGADMIN_PUBLIC_DOMAIN=${PGADMIN_DOMAIN}
 ALTOSA_API_KEY=$(openssl rand -hex 32)
 ALTOSA_PUBLIC_URL_BASE=${PUBLIC_URL_BASE}
 ALTOSA_PUBLIC_DOMAIN=${PUBLIC_DOMAIN}
+# Kommo (opcional): completar para sincronizar plantillas
+KOMMO_API_URL=
+KOMMO_API_KEY=
 EOF
   chmod 600 .env
   echo "[✓] .env creado con secretos nuevos."
@@ -82,6 +85,8 @@ else
   ensure_env ALTOSA_API_KEY "$(openssl rand -hex 32)"
   ensure_env ALTOSA_PUBLIC_URL_BASE "$PUBLIC_URL_BASE"
   ensure_env ALTOSA_PUBLIC_DOMAIN "$PUBLIC_DOMAIN"
+  ensure_env KOMMO_API_URL ''
+  ensure_env KOMMO_API_KEY ''
   chmod 600 .env
   echo "[✓] .env existente conservado y completado."
 fi
@@ -122,6 +127,9 @@ log "Habilitando pgvector"
 docker exec altosa-postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -c "CREATE EXTENSION IF NOT EXISTS vector;" >/dev/null
 echo "[✓] pgvector listo."
+
+log "Aplicando migración de Kommo (kommo_templates)"
+bash ./scripts/apply-kommo-migration.sh
 
 log "Esperando altosa-api"
 for i in $(seq 1 60); do
@@ -166,5 +174,7 @@ cat <<EOF
  En el ERP configura:
    ALTOSA_API_URL=https://${ALTOSA_PUBLIC_DOMAIN}
    ALTOSA_API_KEY=${ALTOSA_API_KEY}
+------------------------------------------------------------
+ Plantillas Kommo: configura KOMMO_API_URL y KOMMO_API_KEY en .env
 ============================================================
 EOF

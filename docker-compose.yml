@@ -68,6 +68,8 @@ services:
       API_KEY: ${ALTOSA_API_KEY:?Define ALTOSA_API_KEY en .env}
       UPLOAD_DIR: /data/uploads
       PUBLIC_URL_BASE: ${ALTOSA_PUBLIC_URL_BASE:?Define ALTOSA_PUBLIC_URL_BASE en .env}
+      KOMMO_API_URL: ${KOMMO_API_URL:-}
+      KOMMO_API_KEY: ${KOMMO_API_KEY:-}
     volumes:
       - uploads_data:/data/uploads
     depends_on:

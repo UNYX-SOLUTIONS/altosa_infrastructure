@@ -3,6 +3,10 @@
 // Las tablas pertenecen al pipeline de sincronización (n8n/kb_sync_record) del cliente,
 // por eso se omiten columnas internas de sync (source_*, content_hash, sync_metadata)
 // y la columna `embedding vector(1536)` de documents.
+//
+// Excepción controlada: la tabla `kommo_templates` y la columna
+// `products.kommo_template_id` se crean con `prisma/sql/kommo_templates.sql`
+// mediante `scripts/apply-kommo-migration.sh` (idempotente).
 
 generator client {
   provider      = "prisma-client-js"
@@ -54,21 +58,40 @@ model Subcategoria {
   @@map("subcategories")
 }
 
+model KommoTemplate {
+  id        String   @id @default(cuid())
+  kommoId   Int      @unique @map("kommo_id")
+  name      String   @db.Text
+  type      String   @default("amocrm") @db.Text
+  content   String?  @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  productos Producto[]
+  variantes ProductoVariante[]
+
+  @@map("kommo_templates")
+}
+
 model Producto {
-  idProducto     Int      @id @default(autoincrement()) @map("id_producto")
-  idSubCategoria Int      @map("id_sub_categoria")
-  producto       String   @db.Text
-  descripcion    String?  @db.Text
-  usoRecomendado String?  @map("uso_recomendado") @db.Text
-  estadoId       Int      @map("estado_id") @db.SmallInt
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  idProducto      Int      @id @default(autoincrement()) @map("id_producto")
+  idSubCategoria  Int      @map("id_sub_categoria")
+  producto        String   @db.Text
+  descripcion     String?  @db.Text
+  usoRecomendado  String?  @map("uso_recomendado") @db.Text
+  estadoId        Int      @map("estado_id") @db.SmallInt
+  isActive        Boolean  @default(true) @map("is_active")
+  kommoTemplateId String?  @map("kommo_template_id")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  subcategoria Subcategoria      @relation(fields: [idSubCategoria], references: [id])
-  estado       Estado            @relation(fields: [estadoId], references: [id])
-  variants     ProductoVariante[]
+  subcategoria  Subcategoria      @relation(fields: [idSubCategoria], references: [id])
+  estado        Estado            @relation(fields: [estadoId], references: [id])
+  variants      ProductoVariante[]
+  kommoTemplate KommoTemplate?    @relation(fields: [kommoTemplateId], references: [id], onDelete: SetNull)
 
+  @@index([kommoTemplateId])
   @@map("products")
 }
 
@@ -103,14 +126,17 @@ model ProductoVariante {
   estadoId                    Int      @map("estado_id") @db.SmallInt
   isActive                    Boolean  @default(true) @map("is_active")
   imagenUrl                   String?  @map("imagen_url") @db.Text
+  kommoTemplateId             String?  @map("kommo_template_id")
   createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  producto Producto  @relation(fields: [idProducto], references: [idProducto])
-  garantia Garantia? @relation(fields: [idGarantia], references: [idGarantia])
-  catalogo Catalogo? @relation(fields: [idCatalogo], references: [id])
-  estado   Estado    @relation(fields: [estadoId], references: [id])
+  producto      Producto       @relation(fields: [idProducto], references: [idProducto])
+  garantia      Garantia?      @relation(fields: [idGarantia], references: [idGarantia])
+  catalogo      Catalogo?      @relation(fields: [idCatalogo], references: [id])
+  estado        Estado         @relation(fields: [estadoId], references: [id])
+  kommoTemplate KommoTemplate? @relation(fields: [kommoTemplateId], references: [id], onDelete: SetNull)
 
+  @@index([kommoTemplateId])
   @@map("product_variants")
 }
 

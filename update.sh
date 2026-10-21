@@ -74,6 +74,9 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
+log "Aplicando migración de Kommo (kommo_templates)"
+bash ./scripts/apply-kommo-migration.sh
+
 log "Reconectando n8n"
 bash ./scripts/connect-n8n.sh
 

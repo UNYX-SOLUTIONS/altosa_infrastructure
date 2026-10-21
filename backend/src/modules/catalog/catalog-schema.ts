@@ -72,6 +72,7 @@ export const variantBodySchema = z.object({
   garantiaId: z.coerce.number().int().positive().optional(),
   catalogoId: z.coerce.number().int().positive().optional(),
   estadoId: z.coerce.number().int().positive().max(32767).optional(),
+  kommoTemplateId: z.string().trim().min(1).max(80).nullable().optional(),
 });
 
 export const updateVariantBodySchema = variantBodySchema.partial().extend({
@@ -84,6 +85,7 @@ export const createProductBodySchema = z.object({
   usoRecomendado: z.string().trim().max(500).optional(),
   subcategoryId: z.coerce.number().int().positive(),
   estadoId: z.coerce.number().int().positive().max(32767).optional().default(1),
+  kommoTemplateId: z.string().trim().min(1).max(80).nullable().optional(),
   variantes: z.array(variantBodySchema).max(100).optional().default([]),
 });
 
@@ -94,6 +96,7 @@ export const updateProductBodySchema = z.object({
   subcategoryId: z.coerce.number().int().positive().optional(),
   estadoId: z.coerce.number().int().positive().max(32767).optional(),
   isActive: z.boolean().optional(),
+  kommoTemplateId: z.string().trim().min(1).max(80).nullable().optional(),
 });
 
 export const syncVariantBodySchema = z.object({

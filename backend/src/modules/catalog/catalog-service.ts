@@ -28,6 +28,40 @@ function mapEstado(estado: { id: number; estado: string; permiteRag: boolean }) 
   };
 }
 
+function mapKommoTemplate(template: {
+  id: string;
+  kommoId: number;
+  name: string;
+  type: string;
+  content: string | null;
+} | null) {
+  if (!template) {
+    return null;
+  }
+  return {
+    id: template.id,
+    kommoId: template.kommoId,
+    name: template.name,
+    type: template.type,
+    content: template.content,
+  };
+}
+
+async function ensureKommoTemplateExists(id: string) {
+  const prisma = getPrisma();
+  const template = await prisma.kommoTemplate.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+  if (!template) {
+    throw new HttpError(
+      StatusCodes.UNPROCESSABLE_ENTITY,
+      'Plantilla de Kommo no encontrada.',
+      'KOMMO_TEMPLATE_NOT_FOUND'
+    );
+  }
+}
+
 function mapGarantia(garantia: {
   idGarantia: number;
   garantiaMeses: number | null;
@@ -65,7 +99,7 @@ function mapCatalogo(catalogo: {
 }
 
 type VarianteConRelaciones = Prisma.ProductoVarianteGetPayload<{
-  include: { garantia: true; catalogo: true; estado: true };
+  include: { garantia: true; catalogo: true; estado: true; kommoTemplate: true };
 }>;
 
 function mapVariante(variante: VarianteConRelaciones) {
@@ -100,6 +134,8 @@ function mapVariante(variante: VarianteConRelaciones) {
     garantia: mapGarantia(variante.garantia),
     catalogo: mapCatalogo(variante.catalogo),
     estado: mapEstado(variante.estado),
+    kommoTemplateId: variante.kommoTemplateId,
+    kommoTemplate: mapKommoTemplate(variante.kommoTemplate),
     isActive: variante.isActive,
     updatedAt: variante.updatedAt,
   };
@@ -109,6 +145,7 @@ const VARIANT_RELATIONS = {
   garantia: true,
   catalogo: true,
   estado: true,
+  kommoTemplate: true,
 } as const;
 
 export async function listProducts(query: ProductsQuery) {
@@ -168,6 +205,7 @@ export async function listProducts(query: ProductsQuery) {
       },
       estado: mapEstado(producto.estado),
       isActive: producto.isActive,
+      kommoTemplateId: producto.kommoTemplateId,
       updatedAt: producto.updatedAt,
       variantesCount: producto.variants.length,
       precioMin: precios.length > 0 ? Math.min(...precios) : null,
@@ -187,6 +225,7 @@ export async function getProductById(id: number) {
     include: {
       estado: true,
       subcategoria: { include: { categoria: true } },
+      kommoTemplate: true,
       variants: {
         include: VARIANT_RELATIONS,
         orderBy: { idVariante: 'asc' },
@@ -213,6 +252,8 @@ export async function getProductById(id: number) {
     },
     estado: mapEstado(producto.estado),
     isActive: producto.isActive,
+    kommoTemplateId: producto.kommoTemplateId,
+    kommoTemplate: mapKommoTemplate(producto.kommoTemplate),
     updatedAt: producto.updatedAt,
     variantes: producto.variants.map(mapVariante),
   };
@@ -229,6 +270,7 @@ export async function getProductByVariantSku(sku: string) {
         include: {
           estado: true,
           subcategoria: { include: { categoria: true } },
+          kommoTemplate: true,
         },
       },
     },
@@ -258,6 +300,8 @@ export async function getProductByVariantSku(sku: string) {
       },
       estado: mapEstado(variante.producto.estado),
       isActive: variante.producto.isActive,
+      kommoTemplateId: variante.producto.kommoTemplateId,
+      kommoTemplate: mapKommoTemplate(variante.producto.kommoTemplate),
     },
     variante: mapVariante(variante),
   };
@@ -491,6 +535,9 @@ async function validateVariantReferences(input: VariantBody | UpdateVariantBody)
   if (input.catalogoId !== undefined) {
     await ensureCatalogoExists(input.catalogoId);
   }
+  if (input.kommoTemplateId) {
+    await ensureKommoTemplateExists(input.kommoTemplateId);
+  }
 }
 
 function variantCreateData(input: VariantBody) {
@@ -521,6 +568,7 @@ function variantCreateData(input: VariantBody) {
     pesoKg: input.pesoKg ?? null,
     idGarantia: input.garantiaId ?? null,
     idCatalogo: input.catalogoId ?? null,
+    kommoTemplateId: input.kommoTemplateId || null,
   };
 }
 
@@ -555,6 +603,9 @@ function variantUpdateData(input: UpdateVariantBody): Prisma.ProductoVarianteUnc
   if (input.catalogoId !== undefined) data.idCatalogo = input.catalogoId;
   if (input.estadoId !== undefined) data.estadoId = input.estadoId;
   if (input.isActive !== undefined) data.isActive = input.isActive;
+  if (input.kommoTemplateId !== undefined) {
+    data.kommoTemplateId = input.kommoTemplateId || null;
+  }
 
   return data;
 }
@@ -564,6 +615,9 @@ export async function createProduct(input: CreateProductBody) {
 
   await ensureSubcategoriaExists(input.subcategoryId);
   await ensureEstadoExists(input.estadoId);
+  if (input.kommoTemplateId) {
+    await ensureKommoTemplateExists(input.kommoTemplateId);
+  }
 
   for (const variante of input.variantes) {
     await ensureSkuAvailable(variante.sku);
@@ -579,6 +633,7 @@ export async function createProduct(input: CreateProductBody) {
       usoRecomendado: input.usoRecomendado || null,
       estadoId: input.estadoId,
       isActive: true,
+      kommoTemplateId: input.kommoTemplateId || null,
       createdAt: now,
       updatedAt: now,
       variants: {
@@ -613,6 +668,9 @@ export async function updateProduct(id: number, input: UpdateProductBody) {
   if (input.estadoId !== undefined) {
     await ensureEstadoExists(input.estadoId);
   }
+  if (input.kommoTemplateId) {
+    await ensureKommoTemplateExists(input.kommoTemplateId);
+  }
 
   const data: Prisma.ProductoUncheckedUpdateInput = { updatedAt: new Date() };
   if (input.nombre !== undefined) data.producto = input.nombre;
@@ -621,6 +679,9 @@ export async function updateProduct(id: number, input: UpdateProductBody) {
   if (input.subcategoryId !== undefined) data.idSubCategoria = input.subcategoryId;
   if (input.estadoId !== undefined) data.estadoId = input.estadoId;
   if (input.isActive !== undefined) data.isActive = input.isActive;
+  if (input.kommoTemplateId !== undefined) {
+    data.kommoTemplateId = input.kommoTemplateId || null;
+  }
 
   await prisma.producto.update({ where: { idProducto: id }, data });
   return getProductById(id);

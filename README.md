@@ -108,6 +108,25 @@ La ruta `/uploads` es pública para servir las imágenes de variantes.
   curl -fsS -H "x-api-key: <KEY>" "https://api.altosamobiliario.com/api/v1/products?page=1&pageSize=1"
   ```
 - Esquema en Prisma: solo `prisma generate`, NUNCA `migrate` (las tablas las administra el pipeline n8n/`kb_sync_record` del cliente).
+  - Excepción controlada: `kommo_templates`, `products.kommo_template_id` y `product_variants.kommo_template_id` se crean con `scripts/apply-kommo-migration.sh` (SQL idempotente; lo ejecutan `install.sh`/`update.sh`).
+- Plantillas de Kommo: `GET /api/v1/kommo/templates?search=` y `POST /api/v1/kommo/sync-templates`. Configura `KOMMO_API_URL` y `KOMMO_API_KEY` en `.env`.
+
+## Kommo (plantillas de chat)
+
+Configura en el `.env` de Altosa:
+
+```env
+KOMMO_API_URL=https://altosa.kommo.com
+KOMMO_API_KEY=<token de larga duración>
+```
+
+- Producción: `/docker/altosa_infrastructure/.env` (el compose lo pasa al contenedor `altosa-api`). Después ejecuta `sudo bash update.sh`.
+- Desarrollo local: `backend/.env`; reinicia `pnpm dev`.
+- El ERP **no** guarda este token: el frontend consulta el BFF del ERP, el ERP llama a `altosa-api` con `x-api-key`, y `altosa-api` llama a Kommo.
+- Sincronización: `POST /api/v1/kommo/sync-templates` (desde la UI con el botón **Sincronizar** de la sección “Plantilla de Kommo” o directo con `x-api-key`).
+- Búsqueda: `GET /api/v1/kommo/templates?search=...`.
+- La API de Kommo devuelve solo las plantillas creadas por la integración actual; si una plantilla no aparece, revisa esa limitación/permisos.
+- `product_variants.kommo_template_id` guarda la asociación variante → plantilla; n8n puede leerla con un JOIN a `kommo_templates`.
 
 ### Desarrollo local del API
 

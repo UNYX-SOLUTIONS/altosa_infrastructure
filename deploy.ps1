@@ -83,3 +83,5 @@ if ($apiKey) { Write-Host "ALTOSA_API_KEY=$apiKey" -ForegroundColor Yellow }
 Write-Host ""
 Write-Host "Copia esos dos valores al .env.production del ERP y reinicia su backend." -ForegroundColor Yellow
 Write-Host "No compartas esta salida: contiene la API key." -ForegroundColor Yellow
+Write-Host "
+Plantillas Kommo: agrega KOMMO_API_URL y KOMMO_API_KEY al .env de Altosa y ejecuta update.sh." -ForegroundColor Cyan

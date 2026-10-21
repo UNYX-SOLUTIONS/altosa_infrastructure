@@ -26,6 +26,17 @@ docker exec altosa-api wget -qO- --header="x-api-key: ${API_KEY}" \
   && echo "OK: /api/v1/products con x-api-key"
 echo
 
+echo "--- kommo_templates ---"
+KOMMO_TABLE="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT to_regclass('public.kommo_templates');")"
+KOMMO_VARIANT_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='kommo_template_id';")"
+if [ -n "$KOMMO_TABLE" ] && [ -n "$KOMMO_VARIANT_COL" ]; then
+  echo "OK: $KOMMO_TABLE + product_variants.$KOMMO_VARIANT_COL"
+else
+  echo "ERROR: falta kommo_templates o product_variants.kommo_template_id (ejecuta scripts/apply-kommo-migration.sh)" >&2
+  exit 1
+fi
+echo
+
 echo "--- altosa_backend ---"
 docker network inspect altosa_backend --format '{{range $id,$c := .Containers}}{{println $c.Name}}{{end}}'
 echo
