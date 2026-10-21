@@ -6,27 +6,61 @@ V4 publica **pgAdmin a través del Traefik existente**, sin dominio, usando un e
 
 - `http://IP_DEL_VPS:5050` -> Traefik -> pgAdmin
 - Traefik existente -> n8n (routing de Hostinger se conserva)
-- n8n + pgAdmin + PostgreSQL comparten `altosa_backend`
+- Traefik -> `https://ALTOSA_PUBLIC_DOMAIN` -> altosa-api:4100
+- n8n + pgAdmin + altosa-api + PostgreSQL comparten `altosa_backend`
 - PostgreSQL NO publica 5432
+- El ERP Unyx consume `altosa-api` con `x-api-key`.
 
 > Sin dominio, esta versión usa HTTP para pgAdmin. No envía credenciales de pgAdmin por HTTPS. Úsalo como configuración temporal; para producción se recomienda un hostname con TLS/Let's Encrypt o restringir el puerto 5050 por firewall/VPN.
 
 ## Instalación
 
+### Desde Windows (recomendado)
+
+```powershell
+cd "D:\Trabajo\Unyx Solutions\Develop\Backends Clientes\altosa_infrastructure"
+.\deploy.ps1 -VpsHost <ALTOSA_VPS_IP> -PublicDomain api.altosamobiliario.com
+```
+
+El wrapper sube el código (sin `.env` ni backups), ejecuta `install.sh` la
+primera vez o `update.sh` si ya existe `.env`, y al final imprime:
+
+```text
+ALTOSA_API_URL=https://api.altosamobiliario.com
+ALTOSA_API_KEY=<key>
+```
+
+Esos dos valores se copian al `.env.production` del ERP.
+
+### En el VPS
+
 ```bash
 cd /docker/altosa_infrastructure
 chmod +x install.sh update.sh backup.sh uninstall.sh scripts/*.sh
-./install.sh
+./install.sh api.altosamobiliario.com
 ```
 
 El instalador:
-1. conserva `.env`;
-2. crea `altosa_backend`;
-3. guarda una copia inicial de `/docker/traefik/docker-compose.yml`;
-4. añade `--entrypoints.pgadmin.address=:5050`;
-5. reinicia Traefik;
-6. levanta PostgreSQL/pgvector y pgAdmin;
-7. conecta n8n a `altosa_backend`.
+1. conserva `.env` y completa las claves faltantes;
+2. genera `ALTOSA_API_KEY` si no existe;
+3. configura `ALTOSA_PUBLIC_URL_BASE` / `ALTOSA_PUBLIC_DOMAIN`;
+4. crea `altosa_backend`;
+5. guarda una copia inicial de `/docker/traefik/docker-compose.yml`;
+6. añade `--entrypoints.pgadmin.address=:5050`;
+7. reinicia Traefik;
+8. construye y levanta PostgreSQL/pgvector, pgAdmin y altosa-api;
+9. espera healthchecks y conecta n8n a `altosa_backend`.
+
+Actualización (hace backup previo de BD + uploads):
+
+```bash
+sudo bash update.sh
+sudo bash update.sh --no-backup
+```
+
+Para cambiar el dominio público después de instalado, edita
+`ALTOSA_PUBLIC_DOMAIN` y `ALTOSA_PUBLIC_URL_BASE` en `.env` y ejecuta
+`update.sh`. Luego actualiza `ALTOSA_API_URL` en el `.env.production` del ERP.
 
 ## Acceso
 
@@ -52,18 +86,27 @@ El Traefik de Hostinger usa `network_mode: host`; por eso el entrypoint escucha 
 
 No ejecutes `docker compose down -v` si quieres conservar la información.
 
-## API interna (altosa-api)
+## API (altosa-api)
 
-Servicio de lectura sobre la base de datos del cliente (`backend/`) con endpoints de sincronización de productos, consumido por el backend del ERP Unyx (patrón BFF). No publica puertos: solo es alcanzable dentro de la red Docker `altosa_backend`.
+Servicio sobre la base de datos del cliente (`backend/`) con endpoints de lectura
+y sincronización de productos, consumido por el backend del ERP Unyx (patrón BFF).
+El contenedor solo expone el puerto 4100 dentro de `altosa_backend`; el acceso
+público va por Traefik en `ALTOSA_PUBLIC_DOMAIN` (HTTPS) y requiere `x-api-key`.
+La ruta `/uploads` es pública para servir las imágenes de variantes.
 
 - Endpoints: `/health` (sin key) y `/api/v1/{products, products/:id, products/sku/:sku, categories, catalogs, locations, warranties, documents}`.
 - Sincronización desde Contifico/ERP: `POST /api/v1/sync/products` (upsert idempotente por SKU de variante, máx. 100 ítems por lote). Ver `docs/integracion-contifico.md` en el repo del ERP.
 - Reconciliación: `POST /api/v1/sync/products/deactivate` con `{ skus: [...] }` (máx. 500); desactiva variantes y el producto si se queda sin variantes activas.
 - Seed offline desde un export del ERP: `pnpm seed:products -- data/contifico-products.json` (procesa en lotes de 100 y aplica `deactivateSkus` si viene en el export).
 - Autenticación: header `x-api-key` con `ALTOSA_API_KEY` de `.env`.
-- En `.env` agregar: `ALTOSA_API_KEY=<openssl rand -hex 32>` (la misma clave se configura en el backend del ERP).
+- En `.env`: `ALTOSA_API_KEY=<openssl rand -hex 32>`, `ALTOSA_PUBLIC_URL_BASE=https://api.altosamobiliario.com` y `ALTOSA_PUBLIC_DOMAIN=api.altosamobiliario.com`.
 - Build/levantar: `docker compose build api && docker compose up -d api` (o `./update.sh`).
-- Prueba: `docker exec <contenedor-backend-erp> wget -qO- --header='x-api-key: <KEY>' http://altosa-api:4100/health`
+- Health local: `./scripts/healthcheck.sh` (verifica PostgreSQL, pgvector, la API y la key).
+- Prueba desde el VPS del ERP:
+  ```bash
+  curl -fsS https://api.altosamobiliario.com/health
+  curl -fsS -H "x-api-key: <KEY>" "https://api.altosamobiliario.com/api/v1/products?page=1&pageSize=1"
+  ```
 - Esquema en Prisma: solo `prisma generate`, NUNCA `migrate` (las tablas las administra el pipeline n8n/`kb_sync_record` del cliente).
 
 ### Desarrollo local del API
