@@ -4,9 +4,14 @@
 // por eso se omiten columnas internas de sync (source_*, content_hash, sync_metadata)
 // y la columna `embedding vector(1536)` de documents.
 //
-// Excepción controlada: la tabla `kommo_templates` y la columna
-// `products.kommo_template_id` se crean con `prisma/sql/kommo_templates.sql`
-// mediante `scripts/apply-kommo-migration.sh` (idempotente).
+// Excepciones controladas (SQL idempotente, ejecutado por install.sh/update.sh):
+// - `kommo_templates`, `products.kommo_template_id` y
+//   `product_variants.kommo_template_id` se crean con
+//   `prisma/sql/kommo_templates.sql` mediante `scripts/apply-kommo-migration.sh`.
+// - `product_variants.meta_retailer_id` (Retailer ID del catálogo de Meta para
+//   WhatsApp Commerce, distinto del SKU interno) se crea con
+//   `prisma/sql/meta_retailer_id.sql` mediante
+//   `scripts/apply-meta-retailer-migration.sh`.
 
 generator client {
   provider      = "prisma-client-js"
@@ -103,6 +108,7 @@ model ProductoVariante {
   descripcion                 String?  @db.Text
   urlProducto                 String?  @map("url_producto") @db.Text
   sku                         String?  @db.Text
+  metaRetailerId              String?  @map("meta_retailer_id") @db.Text
   color                       String?  @db.Text
   precioUsd                   Decimal? @map("precio_usd") @db.Decimal(12, 2)
   material                    String?  @db.Text
@@ -137,6 +143,7 @@ model ProductoVariante {
   kommoTemplate KommoTemplate? @relation(fields: [kommoTemplateId], references: [id], onDelete: SetNull)
 
   @@index([kommoTemplateId])
+  @@index([metaRetailerId])
   @@map("product_variants")
 }
 

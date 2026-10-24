@@ -22,8 +22,19 @@ echo "--- altosa-api ---"
 docker exec altosa-api wget -qO- http://127.0.0.1:4100/health >/dev/null \
   && echo "OK: /health"
 docker exec altosa-api wget -qO- --header="x-api-key: ${API_KEY}" \
-  "http://127.0.0.1:4100/api/v1/products?page=1&pageSize=1" >/dev/null \
-  && echo "OK: /api/v1/products con x-api-key"
+  "http://127.0.0.1:4100/api/v1/products?page=1&pageSize=1&withVariants=true" >/dev/null \
+  && echo "OK: /api/v1/products (withVariants) con x-api-key"
+echo
+
+echo "--- meta_retailer_id ---"
+META_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='meta_retailer_id';")"
+META_IDX="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename='product_variants' AND indexname='product_variants_meta_retailer_id_idx';")"
+if [ -n "$META_COL" ] && [ -n "$META_IDX" ]; then
+  echo "OK: product_variants.$META_COL + $META_IDX"
+else
+  echo "ERROR: falta product_variants.meta_retailer_id o su índice (ejecuta scripts/apply-meta-retailer-migration.sh)" >&2
+  exit 1
+fi
 echo
 
 echo "--- kommo_templates ---"

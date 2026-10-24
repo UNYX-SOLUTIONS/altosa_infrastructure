@@ -1,7 +1,11 @@
 import type { Prisma } from '@prisma/client';
 import { getPrisma } from '../../config/prisma';
 import { HttpError } from '../../utils/api-response';
-import { fetchAllKommoTemplates, isKommoConfigured } from './kommo-client';
+import {
+  fetchAllKommoTemplates,
+  isKommoConfigured,
+  type KommoTemplateDto,
+} from './kommo-client';
 
 export interface KommoTemplateItem {
   id: string;
@@ -10,6 +14,7 @@ export interface KommoTemplateItem {
   type: string;
   content: string | null;
   isActive: boolean;
+  createdAt: Date;
   updatedAt: Date;
 }
 
@@ -17,11 +22,8 @@ export interface KommoSyncResult {
   fetched: number;
   created: number;
   updated: number;
+  unchanged: number;
   deactivated: number;
-}
-
-function mapTemplate(template: KommoTemplateItem): KommoTemplateItem {
-  return template;
 }
 
 export async function searchTemplates(
@@ -31,6 +33,7 @@ export async function searchTemplates(
   const prisma = getPrisma();
   const term = search?.trim();
 
+  const numericTerm = Number(term);
   const where: Prisma.KommoTemplateWhereInput = {
     isActive: true,
     ...(term
@@ -38,21 +41,41 @@ export async function searchTemplates(
           OR: [
             { name: { contains: term, mode: 'insensitive' } },
             { content: { contains: term, mode: 'insensitive' } },
+            ...(Number.isInteger(numericTerm) && numericTerm > 0
+              ? [{ kommoId: numericTerm }]
+              : []),
           ],
         }
       : {}),
   };
 
-  const templates = await prisma.kommoTemplate.findMany({
+  return prisma.kommoTemplate.findMany({
     where,
     orderBy: { name: 'asc' },
     take: limit,
   });
-
-  return templates.map(mapTemplate);
 }
 
-export async function syncTemplates(): Promise<KommoSyncResult> {
+function normalizeTemplate(template: KommoTemplateDto): {
+  kommoId: number;
+  name: string;
+  type: string;
+  content: string | null;
+} | null {
+  const kommoId = Number(template.id);
+  if (!Number.isInteger(kommoId)) {
+    return null;
+  }
+
+  return {
+    kommoId,
+    name: template.name?.trim() || `Plantilla ${kommoId}`,
+    type: template.type?.trim() || 'amocrm',
+    content: template.content ?? null,
+  };
+}
+
+async function runSync(): Promise<KommoSyncResult> {
   if (!isKommoConfigured()) {
     throw new HttpError(
       503,
@@ -62,47 +85,117 @@ export async function syncTemplates(): Promise<KommoSyncResult> {
   }
 
   const fetched = await fetchAllKommoTemplates();
+  const templates = new Map<
+    number,
+    { kommoId: number; name: string; type: string; content: string | null }
+  >();
+
+  for (const template of fetched) {
+    const normalized = normalizeTemplate(template);
+    if (normalized) {
+      templates.set(normalized.kommoId, normalized);
+    }
+  }
+
+  const values = Array.from(templates.values());
+
+  if (values.length === 0) {
+    return {
+      fetched: 0,
+      created: 0,
+      updated: 0,
+      unchanged: 0,
+      deactivated: 0,
+    };
+  }
+
   const prisma = getPrisma();
+  const kommoIds = values.map((template) => template.kommoId);
+  const existing = await prisma.kommoTemplate.findMany({
+    where: { kommoId: { in: kommoIds } },
+    select: {
+      id: true,
+      kommoId: true,
+      name: true,
+      type: true,
+      content: true,
+      isActive: true,
+    },
+  });
+  const existingByKommoId = new Map(
+    existing.map((template) => [template.kommoId, template])
+  );
 
   let created = 0;
   let updated = 0;
-  const seen: number[] = [];
+  let unchanged = 0;
 
-  for (const template of fetched) {
-    const kommoId = Number(template.id);
-    if (!Number.isInteger(kommoId)) {
-      continue;
-    }
+  await prisma.$transaction(
+    async (tx) => {
+      for (const template of values) {
+        const current = existingByKommoId.get(template.kommoId);
 
-    const name = template.name?.trim() || `Plantilla ${kommoId}`;
-    const type = template.type?.trim() || 'amocrm';
-    const content = template.content ?? null;
-    const data = { name, type, content, isActive: true };
+        if (!current) {
+          await tx.kommoTemplate.create({ data: template });
+          created += 1;
+          continue;
+        }
 
-    const existing = await prisma.kommoTemplate.findUnique({
-      where: { kommoId },
-      select: { id: true },
-    });
+        const isUnchanged =
+          current.name === template.name &&
+          current.type === template.type &&
+          current.content === template.content &&
+          current.isActive;
 
-    if (existing) {
-      await prisma.kommoTemplate.update({ where: { kommoId }, data });
-      updated += 1;
-    } else {
-      await prisma.kommoTemplate.create({ data: { kommoId, ...data } });
-      created += 1;
-    }
+        if (isUnchanged) {
+          unchanged += 1;
+          continue;
+        }
 
-    seen.push(kommoId);
+        await tx.kommoTemplate.update({
+          where: { kommoId: template.kommoId },
+          data: { ...template, isActive: true },
+        });
+        updated += 1;
+      }
+    },
+    { timeout: 120_000, maxWait: 10_000 }
+  );
+
+  return {
+    fetched: values.length,
+    created,
+    updated,
+    unchanged,
+    // No se desactivan automáticamente plantillas ausentes: la API de Kommo
+    // puede devolver solo las creadas por una integración concreta.
+    deactivated: 0,
+  };
+}
+
+let syncInFlight: Promise<KommoSyncResult> | null = null;
+
+/**
+ * Evita sincronizaciones concurrentes (doble clic, varios usuarios) y devuelve
+ * el mismo resultado a las llamadas que lleguen mientras corre.
+ */
+export function syncTemplates(): Promise<KommoSyncResult> {
+  if (!isKommoConfigured()) {
+    return Promise.reject(
+      new HttpError(
+        503,
+        'Kommo no está configurado (faltan KOMMO_API_URL y KOMMO_API_KEY).',
+        'KOMMO_NOT_CONFIGURED'
+      )
+    );
   }
 
-  let deactivated = 0;
-  if (seen.length > 0) {
-    const result = await prisma.kommoTemplate.updateMany({
-      where: { isActive: true, kommoId: { notIn: seen } },
-      data: { isActive: false },
-    });
-    deactivated = result.count;
+  if (syncInFlight) {
+    return syncInFlight;
   }
 
-  return { fetched: fetched.length, created, updated, deactivated };
+  syncInFlight = runSync().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
 }

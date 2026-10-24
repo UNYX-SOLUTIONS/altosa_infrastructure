@@ -11,7 +11,9 @@
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
     "prisma:generate": "prisma generate",
-    "seed:products": "tsx src/scripts/seed-products.ts"
+    "seed:products": "tsx src/scripts/seed-products.ts",
+    "backfill:meta-retailer-ids": "tsx src/scripts/backfill-meta-retailer-ids.ts",
+    "sync:meta-mappings": "tsx src/scripts/sync-meta-mappings.ts"
   },
   "dependencies": {
     "@prisma/client": "5.14.0",

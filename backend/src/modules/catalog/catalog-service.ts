@@ -34,6 +34,7 @@ function mapKommoTemplate(template: {
   name: string;
   type: string;
   content: string | null;
+  isActive: boolean;
 } | null) {
   if (!template) {
     return null;
@@ -44,6 +45,7 @@ function mapKommoTemplate(template: {
     name: template.name,
     type: template.type,
     content: template.content,
+    isActive: template.isActive,
   };
 }
 
@@ -106,6 +108,7 @@ function mapVariante(variante: VarianteConRelaciones) {
   return {
     id: variante.idVariante,
     sku: variante.sku,
+    metaRetailerId: variante.metaRetailerId,
     color: variante.color,
     descripcion: variante.descripcion,
     precioUsd: toNumber(variante.precioUsd),

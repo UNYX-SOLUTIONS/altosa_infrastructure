@@ -37,6 +37,9 @@ set +a
 : "${ALTOSA_API_KEY:?Falta ALTOSA_API_KEY en .env}"
 : "${ALTOSA_PUBLIC_URL_BASE:?Falta ALTOSA_PUBLIC_URL_BASE en .env}"
 : "${ALTOSA_PUBLIC_DOMAIN:?Falta ALTOSA_PUBLIC_DOMAIN en .env}"
+if [ -z "${META_ACCESS_TOKEN:-}" ]; then
+  warn "META_ACCESS_TOKEN vacío: el mapeo Meta (sync:meta-mappings) no funcionará hasta configurarlo."
+fi
 
 docker network inspect altosa_backend >/dev/null 2>&1 || fail "No existe la red altosa_backend."
 
@@ -58,6 +61,28 @@ log "Descargando imágenes base"
 # existe en un registro; postgres/pgadmin sí se actualizan desde Docker Hub.
 docker compose pull --ignore-pull-failures
 
+log "Levantando PostgreSQL"
+# La API se reconstruye DESPUÉS de aplicar las migraciones: el cliente Prisma
+# selecciona todas las columnas del esquema y fallaría contra una BD sin la
+# columna nueva. Mientras migra, la API anterior sigue sirviendo.
+docker compose up -d postgres
+
+log "Esperando PostgreSQL"
+for i in $(seq 1 60); do
+  if docker exec altosa-postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
+    echo "[✓] PostgreSQL disponible."
+    break
+  fi
+  [ "$i" -eq 60 ] && fail "PostgreSQL no respondió."
+  sleep 2
+done
+
+log "Aplicando migración de Kommo (kommo_templates)"
+bash ./scripts/apply-kommo-migration.sh
+
+log "Aplicando migración de Meta (product_variants.meta_retailer_id)"
+bash ./scripts/apply-meta-retailer-migration.sh
+
 log "Reconstruyendo y levantando altosa-api"
 docker compose up -d --build
 
@@ -73,9 +98,6 @@ for i in $(seq 1 60); do
   }
   sleep 2
 done
-
-log "Aplicando migración de Kommo (kommo_templates)"
-bash ./scripts/apply-kommo-migration.sh
 
 log "Reconectando n8n"
 bash ./scripts/connect-n8n.sh

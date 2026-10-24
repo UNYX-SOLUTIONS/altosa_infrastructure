@@ -98,6 +98,7 @@ La ruta `/uploads` es pública para servir las imágenes de variantes.
 - Sincronización desde Contifico/ERP: `POST /api/v1/sync/products` (upsert idempotente por SKU de variante, máx. 100 ítems por lote). Ver `docs/integracion-contifico.md` en el repo del ERP.
 - Reconciliación: `POST /api/v1/sync/products/deactivate` con `{ skus: [...] }` (máx. 500); desactiva variantes y el producto si se queda sin variantes activas.
 - Seed offline desde un export del ERP: `pnpm seed:products -- data/contifico-products.json` (procesa en lotes de 100 y aplica `deactivateSkus` si viene en el export).
+- Backfill de Retailer IDs de Meta (WhatsApp Commerce): `pnpm backfill:meta-retailer-ids -- data/meta-retailer-ids.csv --dry-run` (CSV con encabezado `sku,retailer_id` o JSON; omite `--dry-run` para escribir). Sin mapeo, n8n usa `sku` como fallback.
 - Autenticación: header `x-api-key` con `ALTOSA_API_KEY` de `.env`.
 - En `.env`: `ALTOSA_API_KEY=<openssl rand -hex 32>`, `ALTOSA_PUBLIC_URL_BASE=https://api.altosamobiliario.com` y `ALTOSA_PUBLIC_DOMAIN=api.altosamobiliario.com`.
 - Build/levantar: `docker compose build api && docker compose up -d api` (o `./update.sh`).
@@ -108,7 +109,9 @@ La ruta `/uploads` es pública para servir las imágenes de variantes.
   curl -fsS -H "x-api-key: <KEY>" "https://api.altosamobiliario.com/api/v1/products?page=1&pageSize=1"
   ```
 - Esquema en Prisma: solo `prisma generate`, NUNCA `migrate` (las tablas las administra el pipeline n8n/`kb_sync_record` del cliente).
-  - Excepción controlada: `kommo_templates`, `products.kommo_template_id` y `product_variants.kommo_template_id` se crean con `scripts/apply-kommo-migration.sh` (SQL idempotente; lo ejecutan `install.sh`/`update.sh`).
+  - Excepciones controladas (SQL idempotente; lo ejecutan `install.sh`/`update.sh`):
+    - `kommo_templates`, `products.kommo_template_id` y `product_variants.kommo_template_id` con `scripts/apply-kommo-migration.sh`.
+    - `product_variants.meta_retailer_id` con `scripts/apply-meta-retailer-migration.sh`.
 - Plantillas de Kommo: `GET /api/v1/kommo/templates?search=` y `POST /api/v1/kommo/sync-templates`. Configura `KOMMO_API_URL` y `KOMMO_API_KEY` en `.env`.
 
 ## Kommo (plantillas de chat)
@@ -123,10 +126,141 @@ KOMMO_API_KEY=<token de larga duración>
 - Producción: `/docker/altosa_infrastructure/.env` (el compose lo pasa al contenedor `altosa-api`). Después ejecuta `sudo bash update.sh`.
 - Desarrollo local: `backend/.env`; reinicia `pnpm dev`.
 - El ERP **no** guarda este token: el frontend consulta el BFF del ERP, el ERP llama a `altosa-api` con `x-api-key`, y `altosa-api` llama a Kommo.
-- Sincronización: `POST /api/v1/kommo/sync-templates` (desde la UI con el botón **Sincronizar** de la sección “Plantilla de Kommo” o directo con `x-api-key`).
-- Búsqueda: `GET /api/v1/kommo/templates?search=...`.
+- Sincronización: `POST /api/v1/kommo/sync-templates` (desde la UI con el botón **Sincronizar** del selector de plantilla de la variante, o directo con `x-api-key`). Hace upsert; **no desactiva automáticamente** las plantillas ausentes.
+- Búsqueda: `GET /api/v1/kommo/templates?search=&limit=`.
 - La API de Kommo devuelve solo las plantillas creadas por la integración actual; si una plantilla no aparece, revisa esa limitación/permisos.
 - `product_variants.kommo_template_id` guarda la asociación variante → plantilla; n8n puede leerla con un JOIN a `kommo_templates`.
+
+## Sincronización, mapeo Meta y operación
+
+### Dueños de cada dato
+
+```
+Contifico (SKU, precio, stock)  ->  ERP Unyx  ->  Altosa DB  ->  n8n (IA)
+                                                   |  \
+                                                   |   -> Kommo (plantillas/CRM)
+                                                   -> Meta Catalog (tarjetas WhatsApp)
+```
+
+- **Contifico** es la fuente de verdad del SKU/precio/stock.
+- **Altosa DB** es la base de integración que leen n8n y Kommo. `product_variants.sku` es el código interno y **no se modifica** para Meta.
+- **Meta Catalog** identifica cada ítem con su propio `retailer_id` (ej. `WC-240482`). La columna `product_variants.meta_retailer_id` guarda ese mapeo; n8n usa `COALESCE(meta_retailer_id, sku)`.
+- La tarjeta de WhatsApp se renderiza con **precio, imagen y disponibilidad del catálogo de Meta**, no con los de Postgres. El mapeo no sincroniza contenido.
+
+### Sincronizar el mapeo Meta -> Altosa
+
+Con un export del catálogo (recomendado para revisar antes):
+
+```bash
+cd backend
+pnpm sync:meta-mappings -- --file data/meta-catalog.json --dry-run --report data/meta-report.csv
+pnpm sync:meta-mappings -- --file data/meta-catalog.json --match-by-name --dry-run --report data/meta-report.csv
+pnpm sync:meta-mappings -- --file data/meta-catalog.json --match-by-name --apply --report data/meta-report.csv
+```
+
+Directo contra Graph API (requiere `META_CATALOG_ID` y `META_ACCESS_TOKEN` en el entorno; opcional `META_API_VERSION`, default `v26.0`):
+
+```bash
+META_CATALOG_ID=1524398256394561 META_ACCESS_TOKEN=<token> \
+  pnpm sync:meta-mappings -- --apply --match-by-name --report data/meta-report.csv
+```
+
+Por defecto solo cruza por SKU/custom labels (determinista). `--match-by-name` habilita el cruce por nombre único (o nombre + color); revisar siempre el reporte antes de aplicar. Lo ambiguo, sin match o conflictivo se reporta y **no se escribe**. Solo actualiza `meta_retailer_id`; nunca SKU, precio ni otros campos. Sin `--apply` es dry-run.
+
+Mapeo manual/backfill para excepciones:
+
+```bash
+pnpm backfill:meta-retailer-ids -- data/meta-retailer-ids.csv --dry-run
+pnpm backfill:meta-retailer-ids -- data/meta-retailer-ids.csv
+```
+
+El CSV lleva encabezado `sku,retailer_id`. Si un `retailer_id` ya pertenece a otro SKU, el script se detiene; `--force` reasigna con advertencia.
+
+Diagnóstico de variantes activas sin mapeo (n8n usará el SKU como fallback y Meta puede devolver `131009`):
+
+```sql
+SELECT pv.sku, p.producto
+FROM product_variants pv
+JOIN products p ON p.id_producto = pv.id_producto
+WHERE pv.is_active AND p.is_active AND pv.meta_retailer_id IS NULL
+ORDER BY pv.sku;
+```
+
+Integridad del mapeo (ambas consultas deben devolver 0 filas):
+
+```sql
+-- Dos variantes con el mismo SKU rompen el enriquecimiento por SKU.
+SELECT sku, count(*) FROM product_variants
+WHERE sku IS NOT NULL GROUP BY sku HAVING count(*) > 1;
+
+-- Dos variantes con el mismo retailer_id: el carrito no puede desambiguar color/precio.
+SELECT meta_retailer_id, count(*) FROM product_variants
+WHERE meta_retailer_id IS NOT NULL GROUP BY meta_retailer_id HAVING count(*) > 1;
+```
+
+### Contenido del catálogo (precio/stock/imagen)
+
+Hay dos caminos; hay que elegir uno:
+
+1. **Altosa publica el catálogo a Meta** (recomendado a mediano plazo): `retailer_id = sku`, y un job envía precio/disponibilidad/imagen con `POST /{catalog_id}/items_batch`. El mapeo deja de ser necesario para productos nuevos.
+2. **El catálogo lo administra otra fuente** (WooCommerce/Commerce Manager): agregar `custom_label_0 = sku` en el feed y correr `sync:meta-mappings` periódicamente. Sin esa marca, el cruce depende del nombre y requiere revisión. En este modo, comparar periódicamente precio/stock/imagen contra Altosa: si Contifico cambia un precio, Meta seguirá mostrando el anterior hasta que se actualice el feed.
+
+### Orden de despliegue
+
+1. **Altosa**: `sudo bash update.sh` (o `install.sh` la primera vez). Ahora aplica las migraciones **antes** de reconstruir `altosa-api`.
+2. Verifica: `bash scripts/healthcheck.sh` (columna, índice, API con variantes y plantillas).
+3. **ERP**: `sudo bash deploy/deploy-prod.sh` (o `deploy/deploy-test.sh`). El build incluye `dist/scripts/sync-contifico.js` y el CMD aplica sus propias migraciones.
+4. Configura `META_ACCESS_TOKEN` en el `.env` de Altosa y corre el mapeo en dry-run; revisa el CSV y aplica.
+5. Instala los cron (abajo) cuando el reporte esté limpio.
+
+### Programación recomendada (VPS)
+
+Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper del ERP se ejecuta en el host y usa `docker compose` (hace preflight de salud y de Altosa):
+
+```bash
+# Contifico -> ERP -> Altosa cada 15 min; el sync es idempotente.
+# Sin --prune: solo actualiza/crea lo que ya existe en el ERP.
+*/15 * * * * flock -n /tmp/unyx-contifico.lock /docker/unyx_erp/deploy/contifico-sync.sh --apply >> /var/log/unyx-contifico.log 2>&1
+
+# Reconciliación diaria: desactiva lo que ya no está en Contifico (con salvaguardas).
+30 2 * * * flock -n /tmp/unyx-prune.lock /docker/unyx_erp/deploy/contifico-sync.sh --apply --prune >> /var/log/unyx-contifico-prune.log 2>&1
+
+# Meta -> Altosa una vez al día. El token se lee del entorno del host y se pasa
+# por nombre a docker exec (no aparece en la línea de comandos).
+# Requiere META_CATALOG_ID y META_ACCESS_TOKEN en /docker/altosa_infrastructure/.env (chmod 600).
+0 3 * * * flock -n /tmp/altosa-meta.lock sh -c 'set -a; . /docker/altosa_infrastructure/.env; set +a; docker exec -e META_CATALOG_ID -e META_ACCESS_TOKEN altosa-api node dist/scripts/sync-meta-mappings.js --apply --report /tmp/meta-report.csv && docker cp altosa-api:/tmp/meta-report.csv /var/log/altosa-meta-report.csv' >> /var/log/altosa-meta.log 2>&1
+```
+
+- En el ambiente de pruebas, el wrapper del ERP usa otro compose/servicio:
+  `COMPOSE_FILE=/docker/unyx_erp/docker-compose.test.yml ENV_FILE=/docker/unyx_erp/.env.deploy BACKEND_SERVICE=backend /docker/unyx_erp/deploy/contifico-sync.sh --apply`
+- `META_CATALOG_ID`/`META_ACCESS_TOKEN` no se inyectan en el contenedor de la API por defecto: solo se pasan en la ejecución puntual del script.
+- El cron de Meta usa solo cruces deterministas (SKU/custom labels). Si el catálogo no los trae, haz el mapeo inicial con `--match-by-name --dry-run`, revisa el CSV y aplica; el cron seguirá reportando los no mapeados.
+- En el VPS sin Node/pnpm, el backfill manual se puede ejecutar dentro del contenedor:
+  `docker cp data/meta-retailer-ids.csv altosa-api:/tmp/ && docker exec altosa-api node dist/scripts/backfill-meta-retailer-ids.js /tmp/meta-retailer-ids.csv --dry-run`
+- Los scripts son idempotentes; si un cron se solapa, `flock` evita la doble ejecución.
+- Si `sync:contifico` termina con código distinto de 0, hubo fallos de push a Altosa: los productos afectados quedaron `SIN_SINCRONIZAR` y el siguiente sync (idempotente) los reintenta.
+- El ERP reintenta cada lote 3 veces con backoff antes de marcarlo como fallido.
+- Alertar si: falla el cron, `failed > 0`, aparecen SKUs sin mapeo nuevos, o Meta responde `131009`.
+
+### Checklist de seguridad para producción
+
+- [ ] **n8n / Meta**: reemplazar `META_VERIFY_TOKEN` y `META_APP_SECRET` (los placeholders del workflow desactivan la validación de firma). Sin esto, cualquiera puede inyectar pedidos falsos al webhook.
+- [ ] **n8n**: guardar el token de Meta en la credencial (nunca en el JSON del workflow). Usar token permanente de System User y rotarlo si se expone.
+- [ ] **n8n**: path de webhooks no adivinable (sufijo aleatorio) y, si Kommo lo permite, header secreto; el webhook de Kommo no tiene firma nativa.
+- [ ] **Postgres**: crear un rol de solo lectura para n8n (`GRANT SELECT` sobre products, product_variants, kommo_templates, subcategories, categories). n8n no necesita escribir en la BD.
+- [ ] **pgAdmin**: no exponerlo a Internet sin allowlist de IP; es un panel de administración de la BD completa.
+- [ ] **API**: mantener `altosa-api` solo en la red `altosa_backend`, rotar `ALTOSA_API_KEY` y usar HTTPS vía Traefik. El API nunca debe publicar el puerto 4100.
+- [ ] **Migraciones**: nunca `prisma migrate`; solo los SQL idempotentes de `prisma/sql/` (los aplica `install.sh`/`update.sh` **antes** de arrancar la API).
+- [ ] **Backups**: verificar restauración periódica de `backup.sh`; los backups contienen datos de clientes y la API key.
+- [ ] **Tokens**: no imprimirlos en logs, reportes ni notas de Kommo. `sync:meta-mappings` los envía solo en `Authorization: Bearer`.
+
+### Verificación después de desplegar
+
+```bash
+bash scripts/healthcheck.sh
+# Debe mostrar OK de /health, /api/v1/products con withVariants,
+# product_variants.meta_retailer_id + su índice, y kommo_templates.
+```
 
 ### Desarrollo local del API
 

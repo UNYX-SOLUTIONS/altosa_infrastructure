@@ -20,7 +20,9 @@ app.set('trust proxy', false);
 app.use(helmet());
 app.use(compression());
 app.use(pinoHttp({ logger }));
-app.use(express.json({ limit: '100kb' }));
+// 1 MB: el sync interno envía lotes de hasta 50 productos con descripciones y
+// especificaciones; el límite anterior de 100 KB podía rechazar lotes válidos.
+app.use(express.json({ limit: '1mb' }));
 
 // Imágenes subidas (URLs públicas por diseño; se exponen vía Traefik en el VPS).
 app.use(

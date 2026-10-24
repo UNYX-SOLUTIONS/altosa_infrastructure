@@ -71,6 +71,10 @@ ALTOSA_PUBLIC_DOMAIN=${PUBLIC_DOMAIN}
 # Kommo (opcional): completar para sincronizar plantillas
 KOMMO_API_URL=
 KOMMO_API_KEY=
+# Meta (WhatsApp Commerce): catálogo para el mapeo de Retailer IDs.
+# El token de System User se completa después; no se versiona.
+META_CATALOG_ID=1524398256394561
+META_ACCESS_TOKEN=
 EOF
   chmod 600 .env
   echo "[✓] .env creado con secretos nuevos."
@@ -87,6 +91,8 @@ else
   ensure_env ALTOSA_PUBLIC_DOMAIN "$PUBLIC_DOMAIN"
   ensure_env KOMMO_API_URL ''
   ensure_env KOMMO_API_KEY ''
+  ensure_env META_CATALOG_ID 1524398256394561
+  ensure_env META_ACCESS_TOKEN ''
   chmod 600 .env
   echo "[✓] .env existente conservado y completado."
 fi
@@ -100,6 +106,9 @@ set +a
 : "${ALTOSA_PUBLIC_URL_BASE:?Falta ALTOSA_PUBLIC_URL_BASE en .env}"
 : "${ALTOSA_PUBLIC_DOMAIN:?Falta ALTOSA_PUBLIC_DOMAIN en .env}"
 [ "${#ALTOSA_API_KEY}" -ge 16 ] || fail "ALTOSA_API_KEY debe tener al menos 16 caracteres."
+if [ -z "${META_ACCESS_TOKEN:-}" ]; then
+  warn "META_ACCESS_TOKEN vacío: sync:meta-mappings no podrá leer el catálogo de Meta hasta configurarlo."
+fi
 
 log "Configurando entrypoint de pgAdmin en Traefik"
 bash ./scripts/configure-traefik-pgadmin.sh "$PGADMIN_PUBLIC_PORT"
@@ -110,8 +119,10 @@ docker compose pull --ignore-pull-failures
 log "Validando docker-compose"
 docker compose config >/dev/null
 
-log "Construyendo y levantando servicios"
-docker compose up -d --build
+log "Levantando PostgreSQL"
+# La API se arranca DESPUÉS de las migraciones: el cliente Prisma selecciona
+# todas las columnas del esquema y fallaría si la BD aún no las tiene.
+docker compose up -d postgres
 
 log "Esperando PostgreSQL"
 for i in $(seq 1 60); do
@@ -130,6 +141,12 @@ echo "[✓] pgvector listo."
 
 log "Aplicando migración de Kommo (kommo_templates)"
 bash ./scripts/apply-kommo-migration.sh
+
+log "Aplicando migración de Meta (product_variants.meta_retailer_id)"
+bash ./scripts/apply-meta-retailer-migration.sh
+
+log "Construyendo y levantando servicios"
+docker compose up -d --build
 
 log "Esperando altosa-api"
 for i in $(seq 1 60); do
