@@ -5,6 +5,7 @@
 #   .\deploy.ps1 -VpsHost 203.0.113.10
 #   .\deploy.ps1 -VpsHost 203.0.113.10 -PublicDomain api.altosamobiliario.com
 #   .\deploy.ps1 -VpsHost 203.0.113.10 -NoBackup
+#   .\deploy.ps1 -VpsHost 203.0.113.10 -ApiOnly    # solo API; no recrea pgAdmin/PostgreSQL
 #   .\deploy.ps1 -VpsHost 203.0.113.10 -SkipUpload
 #
 # Requisitos locales: OpenSSH (ssh, scp) y tar.
@@ -19,7 +20,8 @@ param(
   [string]$RemoteDir = '/docker/altosa_infrastructure',
   [string]$PublicDomain = '',
   [switch]$SkipUpload,
-  [switch]$NoBackup
+  [switch]$NoBackup,
+  [switch]$ApiOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,10 +63,11 @@ if (-not $SkipUpload) {
 
 $installArg = if ($PublicDomain) { " '$PublicDomain'" } else { '' }
 $backupFlag = if ($NoBackup) { ' --no-backup' } else { '' }
+$apiOnlyFlag = if ($ApiOnly) { ' --api-only' } else { '' }
 $remoteCmd = "cd '$RemoteDir' && " +
   "for f in install.sh update.sh backup.sh uninstall.sh scripts/*.sh; do sed -i 's/\r`$//' `"`$f`"; chmod +x `"`$f`"; done; " +
   "if [ -f .env ] && grep -q '^ALTOSA_API_KEY=.' .env && grep -q '^ALTOSA_PUBLIC_URL_BASE=.' .env && grep -q '^ALTOSA_PUBLIC_DOMAIN=.' .env; then " +
-  "if [ `$(id -u) -eq 0 ]; then bash update.sh$backupFlag; else sudo bash update.sh$backupFlag; fi; " +
+  "if [ `$(id -u) -eq 0 ]; then bash update.sh$backupFlag$apiOnlyFlag; else sudo bash update.sh$backupFlag$apiOnlyFlag; fi; " +
   "else " +
   "if [ `$(id -u) -eq 0 ]; then bash install.sh$installArg; else sudo bash install.sh$installArg; fi; " +
   "fi"
@@ -84,4 +87,5 @@ Write-Host ""
 Write-Host "Copia esos dos valores al .env.production del ERP y reinicia su backend." -ForegroundColor Yellow
 Write-Host "No compartas esta salida: contiene la API key." -ForegroundColor Yellow
 Write-Host "
-Plantillas Kommo: agrega KOMMO_API_URL y KOMMO_API_KEY al .env de Altosa y ejecuta update.sh." -ForegroundColor Cyan
+Plantillas Kommo: agrega KOMMO_API_URL y KOMMO_API_KEY al .env de Altosa y ejecuta update.sh.
+Meta: agrega META_ACCESS_TOKEN (y META_CATALOG_ID si aplica) al .env de Altosa para el selector y el sync de mapeo." -ForegroundColor Cyan

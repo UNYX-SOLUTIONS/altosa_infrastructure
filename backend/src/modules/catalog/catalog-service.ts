@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
 import { getPrisma } from '../../config/prisma';
 import { HttpError } from '../../utils/api-response';
+import { findMetaCatalogItem } from '../meta/meta-client';
 import type {
   CreateProductBody,
   DocumentsQuery,
@@ -558,6 +559,23 @@ async function ensureMetaRetailerIdAvailable(
   }
 }
 
+async function ensureMetaRetailerIdExists(
+  metaRetailerId: string | null | undefined
+): Promise<void> {
+  const normalized = normalizeMetaRetailerId(metaRetailerId);
+  if (!normalized) {
+    return;
+  }
+  const item = await findMetaCatalogItem(normalized);
+  if (!item) {
+    throw new HttpError(
+      StatusCodes.NOT_FOUND,
+      `El Retailer ID "${normalized}" no existe en el catálogo de Meta.`,
+      'META_ITEM_NOT_FOUND'
+    );
+  }
+}
+
 function ensureUniqueMetaRetailerIdsInBatch(variants: VariantBody[]): void {
   const seen = new Set<string>();
   for (const variant of variants) {
@@ -686,6 +704,7 @@ export async function createProduct(input: CreateProductBody) {
 
   for (const variante of input.variantes) {
     await ensureSkuAvailable(variante.sku);
+    await ensureMetaRetailerIdExists(variante.metaRetailerId);
     await ensureMetaRetailerIdAvailable(variante.metaRetailerId);
     await validateVariantReferences(variante);
   }
@@ -769,6 +788,7 @@ export async function createVariant(productId: number, input: VariantBody) {
   }
 
   await ensureSkuAvailable(input.sku);
+  await ensureMetaRetailerIdExists(input.metaRetailerId);
   await ensureMetaRetailerIdAvailable(input.metaRetailerId);
   await validateVariantReferences(input);
 
@@ -803,6 +823,7 @@ export async function updateVariant(variantId: number, input: UpdateVariantBody)
     await ensureSkuAvailable(input.sku, variantId);
   }
   if (input.metaRetailerId !== undefined) {
+    await ensureMetaRetailerIdExists(input.metaRetailerId);
     await ensureMetaRetailerIdAvailable(input.metaRetailerId, variantId);
   }
   await validateVariantReferences(input);
@@ -867,6 +888,7 @@ function normalizeSyncVariant(input: SyncProductBody['variantes'][number]) {
     precioUsd: input.precioUsd ?? null,
     imagenUrl: input.imagenUrl?.trim() || null,
     especificaciones: input.especificaciones ?? {},
+    isActive: input.isActive,
   };
 }
 
@@ -957,6 +979,7 @@ export async function syncProducts(
               precioUsd: null,
               imagenUrl: null,
               especificaciones: {},
+              isActive,
             },
           ];
 
@@ -1058,6 +1081,9 @@ export async function syncProducts(
       const existing =
         existingBySku ?? (variantIndex === 0 ? mergePrimaryVariant : null);
 
+      const variantIsActive = variante.isActive ?? isActive;
+      const variantEstadoId = variantIsActive ? estados.activeId : estados.inactiveId;
+
       const data = {
         idProducto: productId,
         sku: variante.sku,
@@ -1069,8 +1095,8 @@ export async function syncProducts(
           existing?.especificacionesAdicionales,
           variante.especificaciones
         ),
-        estadoId,
-        isActive,
+        estadoId: variantEstadoId,
+        isActive: variantIsActive,
         updatedAt: now,
       };
 

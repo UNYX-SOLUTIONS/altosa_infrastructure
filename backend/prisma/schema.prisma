@@ -109,7 +109,7 @@ model ProductoVariante {
   descripcion                 String?  @db.Text
   urlProducto                 String?  @map("url_producto") @db.Text
   sku                         String?  @db.Text
-  metaRetailerId              String?  @map("meta_retailer_id") @db.Text
+  metaRetailerId              String?  @unique @map("meta_retailer_id") @db.Text
   metaMappingLocked           Boolean  @default(false) @map("meta_mapping_locked")
   color                       String?  @db.Text
   precioUsd                   Decimal? @map("precio_usd") @db.Decimal(12, 2)
@@ -145,7 +145,6 @@ model ProductoVariante {
   kommoTemplate KommoTemplate? @relation(fields: [kommoTemplateId], references: [id], onDelete: SetNull)
 
   @@index([kommoTemplateId])
-  @@index([metaRetailerId])
   @@map("product_variants")
 }
 

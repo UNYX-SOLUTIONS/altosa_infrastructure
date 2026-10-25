@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
+import { Prisma } from '@prisma/client';
 import multer from 'multer';
 import { ZodError } from 'zod';
 import { logger } from '../config/logger';
@@ -39,6 +40,17 @@ export function errorMiddleware(
       success: false,
       message,
       code: 'ALTOSA_UPLOAD_ERROR',
+    });
+    return;
+  }
+
+  // Carrera entre dos asignaciones simultáneas: el índice único de la BD es la
+  // última barrera, además de la validación de aplicación.
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    res.status(StatusCodes.CONFLICT).json({
+      success: false,
+      message: 'El valor ya está en uso. Revisa el Retailer ID de Meta o los datos únicos.',
+      code: 'ALTOSA_UNIQUE_CONFLICT',
     });
     return;
   }

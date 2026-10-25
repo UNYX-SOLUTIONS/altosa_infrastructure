@@ -29,11 +29,11 @@ echo
 echo "--- meta_retailer_id + meta_mapping_locked ---"
 META_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='meta_retailer_id';")"
 META_LOCK_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='meta_mapping_locked';")"
-META_IDX="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename='product_variants' AND indexname='product_variants_meta_retailer_id_idx';")"
-if [ -n "$META_COL" ] && [ -n "$META_LOCK_COL" ] && [ -n "$META_IDX" ]; then
-  echo "OK: product_variants.$META_COL + product_variants.$META_LOCK_COL + $META_IDX"
+META_IDX="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND tablename='product_variants' AND indexname='product_variants_meta_retailer_id_key';")"
+if [ -n "$META_COL" ] && [ -n "$META_LOCK_COL" ] && printf '%s' "$META_IDX" | grep -q '^CREATE UNIQUE INDEX'; then
+  echo "OK: product_variants.$META_COL + product_variants.$META_LOCK_COL + índice único Meta"
 else
-  echo "ERROR: falta product_variants.meta_retailer_id, meta_mapping_locked o su índice (ejecuta scripts/apply-meta-retailer-migration.sh)" >&2
+  echo "ERROR: falta product_variants.meta_retailer_id, meta_mapping_locked o el índice único (ejecuta scripts/apply-meta-retailer-migration.sh)" >&2
   exit 1
 fi
 echo

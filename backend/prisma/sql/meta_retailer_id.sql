@@ -12,5 +12,9 @@ ALTER TABLE product_variants
 ALTER TABLE product_variants
   ADD COLUMN IF NOT EXISTS meta_mapping_locked BOOLEAN NOT NULL DEFAULT FALSE;
 
-CREATE INDEX IF NOT EXISTS product_variants_meta_retailer_id_idx
-  ON product_variants (meta_retailer_id);
+-- El Retailer ID debe ser único (comparación case-insensitive, como la API).
+-- Se usa un índice funcional para que variantes sin mapeo (NULL) no colisionen.
+DROP INDEX IF EXISTS product_variants_meta_retailer_id_idx;
+
+CREATE UNIQUE INDEX IF NOT EXISTS product_variants_meta_retailer_id_key
+  ON product_variants (LOWER(TRIM(meta_retailer_id)));

@@ -112,6 +112,7 @@ La ruta `/uploads` es pública para servir las imágenes de variantes.
   - Excepciones controladas (SQL idempotente; lo ejecutan `install.sh`/`update.sh`):
     - `kommo_templates`, `products.kommo_template_id` y `product_variants.kommo_template_id` con `scripts/apply-kommo-migration.sh`.
     - `product_variants.meta_retailer_id` y `product_variants.meta_mapping_locked` con `scripts/apply-meta-retailer-migration.sh`.
+      - `meta_retailer_id` es único (índice funcional case-insensitive); el script detecta duplicados y falla antes de crear el índice.
 - Plantillas de Kommo: `GET /api/v1/kommo/templates?search=` y `POST /api/v1/kommo/sync-templates`. Configura `KOMMO_API_URL` y `KOMMO_API_KEY` en `.env`.
 - Catálogo Meta (selector de mapeo): `GET /api/v1/meta/catalog/search?q=&limit=` y `GET /api/v1/meta/catalog/item?retailerId=`. Configura `META_CATALOG_ID`, `META_ACCESS_TOKEN` y, opcionalmente, `META_API_VERSION` en `.env`.
 
@@ -134,20 +135,47 @@ KOMMO_API_KEY=<token de larga duración>
 
 ## Sincronización, mapeo Meta y operación
 
-### Dueños de cada dato
+### Capas de verdad (no un único dueño)
 
 ```
-Contifico (SKU, precio, stock)  ->  ERP Unyx  ->  Altosa DB  ->  n8n (IA)
-                                                   |  \
-                                                   |   -> Kommo (plantillas/CRM)
-                                                   -> Meta Catalog (tarjetas WhatsApp)
+Contifico (histórico + stock)
+   │  write-back de campos soportados
+   ▼
+ERP Unyx (administración y aprobación)
+   │  sync idempotente / reconciliación
+   ▼
+Altosa DB (lectura para n8n/Kommo) ──► Meta Catalog (canal WhatsApp)
 ```
 
-- **Contifico** es la fuente de verdad del SKU/precio/stock.
+- **Contifico** conserva el histórico y es la referencia de stock. El ERP **administra** y escribe de vuelta a Contifico los campos soportados: nombre, descripción comercial, categoría/línea, estado activo y precio/descripción de la variante principal. Después se refleja en la DB local y en Altosa.
+- **Stock**: se lee de Contifico; no se edita desde el ERP.
+- **Imagen/thumbnail**: la API de Contifico no permite escribirla; se guarda en local/Altosa y el sync **preserva la imagen del ERP** si ya existe. La imagen de Contifico solo se usa para productos/variantes nuevos que no tengan una.
+- **Variantes extra**: se crean en local/Altosa; Contifico no las conoce (limitación de su API). La variante principal y el SKU de un producto sincronizado están bloqueados en el ERP; se cambian en Contifico.
+- **Aprobación**: `isActive` y `validation` son del ERP. Los productos que entran desde Contifico (incluido "Agregar desde Contifico") nacen inactivos y `PENDIENTE`; el equipo los revisa, aprueba y activa antes de que lleguen a n8n/Meta.
+- **Estado activo**: el sync conserva el `isActive` del producto y de cada variante del ERP. Si Contifico difiere, lo registra en el log para revisión; no reactiva nada. El estado de la variante se propaga a Altosa, así que n8n no ofrece variantes inactivas.
 - **Altosa DB** es la base de integración que leen n8n y Kommo. `product_variants.sku` es el código interno y **no se modifica** para Meta.
-- **Meta Catalog** identifica cada ítem con su propio `retailer_id` (ej. `WC-240482`). La columna `product_variants.meta_retailer_id` guarda ese mapeo; n8n usa `COALESCE(meta_retailer_id, sku)`.
-- **Mapeo manual vs sync**: `product_variants.meta_mapping_locked` en `true` marca un mapeo hecho desde la UI o con backfill. El sync y el backfill omiten esas variantes (salvo `--force` en el backfill). Asignar o quitar un mapeo desde la UI deja la variante bloqueada; "Restaurar sync automático" la desbloquea y deja `meta_retailer_id = NULL`.
-- La tarjeta de WhatsApp se renderiza con **precio, imagen y disponibilidad del catálogo de Meta**, no con los de Postgres. El mapeo no sincroniza contenido.
+- **Meta Catalog** identifica cada ítem con su propio `retailer_id` (ej. `WC-240482`). `product_variants.meta_retailer_id` guarda ese mapeo; n8n usa `COALESCE(meta_retailer_id, sku)`.
+- **Mapeo manual vs sync**: `meta_mapping_locked = true` marca un mapeo hecho desde la UI o con backfill. El sync y el backfill omiten esas variantes (salvo `--force` en el backfill). Asignar o quitar desde la UI deja la variante bloqueada; "Restaurar sync automático" la desbloquea y deja `meta_retailer_id = NULL`.
+- **Keywords**: se editan en el ERP, pero Altosa no tiene columna ni el workflow las usa todavía. Si la IA debe buscar por keywords, hay que mapearlas.
+- **Subcategoría/taxonomía**: el ERP puede moverla; el sync la propaga a Altosa con `updateTaxonomy` solo cuando cambia explícitamente, y el sync masivo de Contifico no la pisa.
+- **Meta (contenido)**: la tarjeta se renderiza con precio, imagen y disponibilidad del catálogo de Meta. El mapeo solo resuelve identidad; escribir contenido a Meta queda para una fase posterior (el catálogo actual parece externo, `WC-...`).
+- **`--prune`**: no se usa en cron. La desactivación normal se hace desde el ERP y se propaga; `--prune` es una reconciliación manual/reporte para SKUs que ya no vienen de Contifico.
+
+### Propiedad de campos
+
+| Campo | Se edita en | Write-back / efecto |
+|---|---|---|
+| SKU producto / variante principal | Contifico | Bloqueado en el ERP; el sync lo refleja |
+| Nombre, descripción comercial, categoría/línea, estado | ERP | `PATCH /producto/{id}` en Contifico → local → Altosa |
+| Precio y descripción de la variante principal | ERP | `PATCH /producto/{id}` (`pvp1`, `descripcion`) → local → Altosa |
+| Stock | Contifico | Solo lectura en el ERP; se refleja en Altosa |
+| Imagen/thumbnail | ERP/local + Altosa | Contifico es read-only; el sync preserva la imagen del ERP |
+| Variantes extra | ERP/local + Altosa | No se crean en Contifico (limitación API) |
+| `keywords` | ERP | Solo local; no está en Altosa ni en el workflow |
+| Subcategoría/taxonomía | ERP | `updateTaxonomy` a Altosa cuando cambia explícitamente |
+| Plantilla Kommo, mapeo Meta | ERP/Altosa | No se escriben a Contifico |
+| Precio/imagen/disponibilidad de la tarjeta Meta | Meta | Pendiente de fase de contenido Meta |
+
 
 ### Sincronizar el mapeo Meta -> Altosa
 
@@ -177,7 +205,7 @@ pnpm backfill:meta-retailer-ids -- data/meta-retailer-ids.csv
 pnpm backfill:meta-retailer-ids -- data/meta-retailer-ids.csv --force
 ```
 
-El CSV lleva encabezado `sku,retailer_id`. Si un `retailer_id` ya pertenece a otro SKU, el script se detiene; `--force` reasigna con advertencia. Las variantes bloqueadas se omiten por defecto; `--force` las actualiza y las deja bloqueadas.
+El CSV lleva encabezado `sku,retailer_id`. Si un `retailer_id` ya pertenece a otro SKU, el script se detiene. `--force` reasigna solo dueños no bloqueados; si el dueño está bloqueado, no se toca ni con `--force` (desbloquéalo desde el ERP). Las variantes bloqueadas se omiten por defecto; `--force` actualiza la variante objetivo y la deja bloqueada.
 
 ### Selector de catálogo Meta desde el ERP
 
@@ -207,8 +235,9 @@ SELECT sku, count(*) FROM product_variants
 WHERE sku IS NOT NULL GROUP BY sku HAVING count(*) > 1;
 
 -- Dos variantes con el mismo retailer_id: el carrito no puede desambiguar color/precio.
-SELECT meta_retailer_id, count(*) FROM product_variants
-WHERE meta_retailer_id IS NOT NULL GROUP BY meta_retailer_id HAVING count(*) > 1;
+SELECT MIN(meta_retailer_id) AS ejemplo, count(*) FROM product_variants
+WHERE meta_retailer_id IS NOT NULL
+GROUP BY LOWER(TRIM(meta_retailer_id)) HAVING count(*) > 1;
 ```
 
 ### Contenido del catálogo (precio/stock/imagen)
@@ -236,8 +265,9 @@ Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper del ERP se e
 # Sin --prune: solo actualiza/crea lo que ya existe en el ERP.
 */15 * * * * flock -n /tmp/unyx-contifico.lock /docker/unyx_erp/deploy/contifico-sync.sh --apply >> /var/log/unyx-contifico.log 2>&1
 
-# Reconciliación diaria: desactiva lo que ya no está en Contifico (con salvaguardas).
-30 2 * * * flock -n /tmp/unyx-prune.lock /docker/unyx_erp/deploy/contifico-sync.sh --apply --prune >> /var/log/unyx-contifico-prune.log 2>&1
+# Reconciliación semanal SOLO REPORTE: muestra SKUs que ya no vienen de Contifico.
+# No desactiva: la desactivación se hace en el ERP (isActive) y se propaga a Altosa.
+0 4 * * 0 flock -n /tmp/unyx-prune.lock /docker/unyx_erp/deploy/contifico-sync.sh --dry-run --prune >> /var/log/unyx-contifico-prune.log 2>&1
 
 # Meta -> Altosa una vez al día. El token se lee del entorno del host y se pasa
 # por nombre a docker exec (no aparece en la línea de comandos).
