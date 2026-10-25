@@ -12,6 +12,15 @@ const envSchema = z.object({
   PUBLIC_URL_BASE: z.string().url().default('http://localhost:4100'),
   KOMMO_API_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   KOMMO_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  META_CATALOG_ID: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().min(1).max(64).optional()
+  ),
+  META_ACCESS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  META_API_VERSION: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().regex(/^v\d+\.\d+$/).default('v26.0')
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);

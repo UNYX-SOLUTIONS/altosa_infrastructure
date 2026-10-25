@@ -142,7 +142,7 @@ echo "[✓] pgvector listo."
 log "Aplicando migración de Kommo (kommo_templates)"
 bash ./scripts/apply-kommo-migration.sh
 
-log "Aplicando migración de Meta (product_variants.meta_retailer_id)"
+log "Aplicando migración de Meta (meta_retailer_id, meta_mapping_locked)"
 bash ./scripts/apply-meta-retailer-migration.sh
 
 log "Construyendo y levantando servicios"

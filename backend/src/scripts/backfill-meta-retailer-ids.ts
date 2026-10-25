@@ -11,7 +11,9 @@
  *
  * Es idempotente: solo escribe las variantes cuyo valor actual difiere del
  * mapeo. `--dry-run` reporta sin escribir. `--force` permite reasignar un
- * Retailer ID que ya pertenece a otro SKU. No modifica SKUs ni otros campos.
+ * Retailer ID que ya pertenece a otro SKU. Las variantes con
+ * `meta_mapping_locked = true` se omiten por defecto; con `--force` se
+ * actualizan y quedan bloqueadas. No modifica SKUs ni otros campos.
  * Los Retailer IDs se obtienen del catálogo de Meta:
  *   GET https://graph.facebook.com/v26.0/<catalog_id>/products?fields=retailer_id,name
  */
@@ -31,6 +33,7 @@ interface BackfillStats {
   notFound: number;
   conflicts: number;
   cleared: number;
+  locked: number;
 }
 
 function fail(message: string): never {
@@ -183,8 +186,10 @@ async function applyMappings(
     notFound: 0,
     conflicts: 0,
     cleared: 0,
+    locked: 0,
   };
   const missing: string[] = [];
+  const lockedSkus = new Set<string>();
 
   const existingMappings = await prisma.productoVariante.findMany({
     where: { metaRetailerId: { not: null } },
@@ -237,7 +242,11 @@ async function applyMappings(
 
     const variants = await prisma.productoVariante.findMany({
       where: { sku: row.sku },
-      select: { idVariante: true, metaRetailerId: true },
+      select: {
+        idVariante: true,
+        metaRetailerId: true,
+        metaMappingLocked: true,
+      },
     });
 
     if (variants.length === 0) {
@@ -252,18 +261,43 @@ async function applyMappings(
     }
 
     for (const variant of variants) {
-      if (normalizeRetailerId(variant.metaRetailerId) === normalizeRetailerId(row.retailerId)) {
+      if (variant.metaMappingLocked && !force) {
+        stats.locked += 1;
+        lockedSkus.add(row.sku);
+        continue;
+      }
+      const isSame =
+        normalizeRetailerId(variant.metaRetailerId) === normalizeRetailerId(row.retailerId);
+      if (isSame) {
+        if (force && !variant.metaMappingLocked) {
+          if (!dryRun) {
+            await prisma.productoVariante.update({
+              where: { idVariante: variant.idVariante },
+              data: { metaMappingLocked: true },
+            });
+          }
+          stats.updated += 1;
+          continue;
+        }
         stats.unchanged += 1;
         continue;
       }
       if (!dryRun) {
         await prisma.productoVariante.update({
           where: { idVariante: variant.idVariante },
-          data: { metaRetailerId: row.retailerId },
+          data: { metaRetailerId: row.retailerId, metaMappingLocked: true },
         });
       }
       stats.updated += 1;
     }
+  }
+
+  if (lockedSkus.size > 0) {
+    const preview = Array.from(lockedSkus).slice(0, 25).join(', ');
+    const suffix = lockedSkus.size > 25 ? ` … y ${lockedSkus.size - 25} más` : '';
+    console.warn(
+      `[!] Variantes con mapeo manual bloqueado omitidas: ${preview}${suffix}. Usa --force para sobrescribirlas.`
+    );
   }
 
   if (missing.length > 0) {
@@ -310,11 +344,12 @@ async function main(): Promise<void> {
   console.log(
     `Backfill${mode} completado: ${rows.length} mapeos, ` +
       `${stats.updated} variantes ${dryRun ? 'a actualizar' : 'actualizadas'}, ` +
-      `${stats.unchanged} sin cambios, ${stats.notFound} SKUs no encontrados, ` +
+      `${stats.unchanged} sin cambios, ${stats.locked} bloqueadas omitidas, ` +
+      `${stats.notFound} SKUs no encontrados, ` +
       `${stats.conflicts} conflictos, ${stats.cleared} mapeos liberados.`
   );
 
-  if (stats.updated + stats.unchanged === 0) {
+  if (stats.updated + stats.unchanged + stats.locked === 0) {
     console.error('Ningún mapeo coincidió con variantes existentes; revisa los SKUs del archivo.');
     process.exitCode = 1;
   }

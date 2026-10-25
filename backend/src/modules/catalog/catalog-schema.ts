@@ -73,6 +73,8 @@ export const variantBodySchema = z.object({
   catalogoId: z.coerce.number().int().positive().optional(),
   estadoId: z.coerce.number().int().positive().max(32767).optional(),
   kommoTemplateId: z.string().trim().min(1).max(80).nullable().optional(),
+  metaRetailerId: z.string().trim().max(100).nullable().optional(),
+  metaMappingLocked: z.boolean().optional(),
 });
 
 export const updateVariantBodySchema = variantBodySchema.partial().extend({

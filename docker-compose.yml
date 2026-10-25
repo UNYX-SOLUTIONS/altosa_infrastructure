@@ -70,6 +70,9 @@ services:
       PUBLIC_URL_BASE: ${ALTOSA_PUBLIC_URL_BASE:?Define ALTOSA_PUBLIC_URL_BASE en .env}
       KOMMO_API_URL: ${KOMMO_API_URL:-}
       KOMMO_API_KEY: ${KOMMO_API_KEY:-}
+      META_CATALOG_ID: ${META_CATALOG_ID:-}
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
+      META_API_VERSION: ${META_API_VERSION:-v26.0}
     volumes:
       - uploads_data:/data/uploads
     depends_on:

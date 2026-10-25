@@ -94,7 +94,7 @@ El contenedor solo expone el puerto 4100 dentro de `altosa_backend`; el acceso
 público va por Traefik en `ALTOSA_PUBLIC_DOMAIN` (HTTPS) y requiere `x-api-key`.
 La ruta `/uploads` es pública para servir las imágenes de variantes.
 
-- Endpoints: `/health` (sin key) y `/api/v1/{products, products/:id, products/sku/:sku, categories, catalogs, locations, warranties, documents}`.
+- Endpoints: `/health` (sin key) y `/api/v1/{products, products/:id, products/sku/:sku, categories, catalogs, locations, warranties, documents, meta/catalog/search, meta/catalog/item}`.
 - Sincronización desde Contifico/ERP: `POST /api/v1/sync/products` (upsert idempotente por SKU de variante, máx. 100 ítems por lote). Ver `docs/integracion-contifico.md` en el repo del ERP.
 - Reconciliación: `POST /api/v1/sync/products/deactivate` con `{ skus: [...] }` (máx. 500); desactiva variantes y el producto si se queda sin variantes activas.
 - Seed offline desde un export del ERP: `pnpm seed:products -- data/contifico-products.json` (procesa en lotes de 100 y aplica `deactivateSkus` si viene en el export).
@@ -111,8 +111,9 @@ La ruta `/uploads` es pública para servir las imágenes de variantes.
 - Esquema en Prisma: solo `prisma generate`, NUNCA `migrate` (las tablas las administra el pipeline n8n/`kb_sync_record` del cliente).
   - Excepciones controladas (SQL idempotente; lo ejecutan `install.sh`/`update.sh`):
     - `kommo_templates`, `products.kommo_template_id` y `product_variants.kommo_template_id` con `scripts/apply-kommo-migration.sh`.
-    - `product_variants.meta_retailer_id` con `scripts/apply-meta-retailer-migration.sh`.
+    - `product_variants.meta_retailer_id` y `product_variants.meta_mapping_locked` con `scripts/apply-meta-retailer-migration.sh`.
 - Plantillas de Kommo: `GET /api/v1/kommo/templates?search=` y `POST /api/v1/kommo/sync-templates`. Configura `KOMMO_API_URL` y `KOMMO_API_KEY` en `.env`.
+- Catálogo Meta (selector de mapeo): `GET /api/v1/meta/catalog/search?q=&limit=` y `GET /api/v1/meta/catalog/item?retailerId=`. Configura `META_CATALOG_ID`, `META_ACCESS_TOKEN` y, opcionalmente, `META_API_VERSION` en `.env`.
 
 ## Kommo (plantillas de chat)
 
@@ -145,6 +146,7 @@ Contifico (SKU, precio, stock)  ->  ERP Unyx  ->  Altosa DB  ->  n8n (IA)
 - **Contifico** es la fuente de verdad del SKU/precio/stock.
 - **Altosa DB** es la base de integración que leen n8n y Kommo. `product_variants.sku` es el código interno y **no se modifica** para Meta.
 - **Meta Catalog** identifica cada ítem con su propio `retailer_id` (ej. `WC-240482`). La columna `product_variants.meta_retailer_id` guarda ese mapeo; n8n usa `COALESCE(meta_retailer_id, sku)`.
+- **Mapeo manual vs sync**: `product_variants.meta_mapping_locked` en `true` marca un mapeo hecho desde la UI o con backfill. El sync y el backfill omiten esas variantes (salvo `--force` en el backfill). Asignar o quitar un mapeo desde la UI deja la variante bloqueada; "Restaurar sync automático" la desbloquea y deja `meta_retailer_id = NULL`.
 - La tarjeta de WhatsApp se renderiza con **precio, imagen y disponibilidad del catálogo de Meta**, no con los de Postgres. El mapeo no sincroniza contenido.
 
 ### Sincronizar el mapeo Meta -> Altosa
@@ -165,16 +167,27 @@ META_CATALOG_ID=1524398256394561 META_ACCESS_TOKEN=<token> \
   pnpm sync:meta-mappings -- --apply --match-by-name --report data/meta-report.csv
 ```
 
-Por defecto solo cruza por SKU/custom labels (determinista). `--match-by-name` habilita el cruce por nombre único (o nombre + color); revisar siempre el reporte antes de aplicar. Lo ambiguo, sin match o conflictivo se reporta y **no se escribe**. Solo actualiza `meta_retailer_id`; nunca SKU, precio ni otros campos. Sin `--apply` es dry-run. Los `retailer_id` ya mapeados se reportan como `already_ok` y no se vuelven a tocar.
+Por defecto solo cruza por SKU/custom labels (determinista). `--match-by-name` habilita el cruce por nombre único (o nombre + color); revisar siempre el reporte antes de aplicar. Lo ambiguo, sin match o conflictivo se reporta y **no se escribe**. Solo actualiza `meta_retailer_id`; nunca SKU, precio ni otros campos. Sin `--apply` es dry-run. Los `retailer_id` ya mapeados se reportan como `already_ok` y no se vuelven a tocar. Las variantes con `meta_mapping_locked = true` se reportan como `already_ok` con detalle "mapeo manual bloqueado" y nunca se proponen, sobrescriben ni se liberan.
 
 Mapeo manual/backfill para excepciones:
 
 ```bash
 pnpm backfill:meta-retailer-ids -- data/meta-retailer-ids.csv --dry-run
 pnpm backfill:meta-retailer-ids -- data/meta-retailer-ids.csv
+pnpm backfill:meta-retailer-ids -- data/meta-retailer-ids.csv --force
 ```
 
-El CSV lleva encabezado `sku,retailer_id`. Si un `retailer_id` ya pertenece a otro SKU, el script se detiene; `--force` reasigna con advertencia.
+El CSV lleva encabezado `sku,retailer_id`. Si un `retailer_id` ya pertenece a otro SKU, el script se detiene; `--force` reasigna con advertencia. Las variantes bloqueadas se omiten por defecto; `--force` las actualiza y las deja bloqueadas.
+
+### Selector de catálogo Meta desde el ERP
+
+El ERP consulta estos endpoints a través de su BFF autenticado; el navegador nunca recibe el token de Meta.
+
+- `GET /api/v1/meta/catalog/search?q=PC155&limit=20`: busca por `retailer_id` o nombre normalizado (sin tildes, case-insensitive). `q` requiere 2–80 caracteres; `limit` máximo 50. Devuelve `{ success: true, data: { items: [{ retailerId, name, imageUrl, price, availability, visibility, url }] } }`.
+- `GET /api/v1/meta/catalog/item?retailerId=WC-240482`: devuelve el ítem exacto o `404 META_ITEM_NOT_FOUND`.
+- Sin `META_CATALOG_ID`/`META_ACCESS_TOKEN`: `503 META_NOT_CONFIGURED` (el resto del API sigue funcionando).
+- Errores de Meta: `502 META_API_ERROR`. El cliente del API pagina con `paging.next` validando que sea `https://graph.facebook.com`, con timeout de 25 s y caché en memoria de 5 minutos. Las búsquedas tienen un límite adicional de 120 solicitudes cada 15 minutos.
+- Seguridad: el token se envía solo en `Authorization: Bearer`, nunca en la URL, en la respuesta HTTP ni en logs. No hardcodear el token; rotarlo si se expone.
 
 Diagnóstico de variantes activas sin mapeo (n8n usará el SKU como fallback y Meta puede devolver `131009`):
 
@@ -209,7 +222,7 @@ Hay dos caminos; hay que elegir uno:
 
 1. **Altosa**: `sudo bash update.sh` (o `install.sh` la primera vez). Ahora aplica las migraciones **antes** de reconstruir `altosa-api`.
    - Solo API, sin recrear pgAdmin/PostgreSQL ni reiniciar Traefik: `sudo bash update.sh --api-only`.
-2. Verifica: `bash scripts/healthcheck.sh` (columna, índice, API con variantes y plantillas).
+2. Verifica: `bash scripts/healthcheck.sh` (columnas `meta_retailer_id`/`meta_mapping_locked`, índice, API con variantes y plantillas).
 3. **ERP**: `sudo bash deploy/deploy-prod.sh` (o `deploy/deploy-test.sh`). El build incluye `dist/scripts/sync-contifico.js` y el CMD aplica sus propias migraciones.
 4. Configura `META_ACCESS_TOKEN` en el `.env` de Altosa y corre el mapeo en dry-run; revisa el CSV y aplica.
 5. Instala los cron (abajo) cuando el reporte esté limpio.
@@ -234,7 +247,7 @@ Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper del ERP se e
 
 - En el ambiente de pruebas, el wrapper del ERP usa otro compose/servicio:
   `COMPOSE_FILE=/docker/unyx_erp/docker-compose.test.yml ENV_FILE=/docker/unyx_erp/.env.deploy BACKEND_SERVICE=backend /docker/unyx_erp/deploy/contifico-sync.sh --apply`
-- `META_CATALOG_ID`/`META_ACCESS_TOKEN` no se inyectan en el contenedor de la API por defecto: solo se pasan en la ejecución puntual del script.
+- `META_CATALOG_ID`/`META_ACCESS_TOKEN`/`META_API_VERSION` se pasan al contenedor `altosa-api` desde el `.env` del compose (necesarios para el selector de la UI). El cron puede seguir pasándolos por nombre a `docker exec` o usar los del contenedor.
 - El cron de Meta usa solo cruces deterministas (SKU/custom labels). Si el catálogo no los trae, haz el mapeo inicial con `--match-by-name --dry-run`, revisa el CSV y aplica; el cron seguirá reportando los no mapeados.
 - En el VPS sin Node/pnpm, el backfill manual se puede ejecutar dentro del contenedor:
   `docker cp data/meta-retailer-ids.csv altosa-api:/tmp/ && docker exec altosa-api node dist/scripts/backfill-meta-retailer-ids.js /tmp/meta-retailer-ids.csv --dry-run`
@@ -253,14 +266,15 @@ Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper del ERP se e
 - [ ] **API**: mantener `altosa-api` solo en la red `altosa_backend`, rotar `ALTOSA_API_KEY` y usar HTTPS vía Traefik. El API nunca debe publicar el puerto 4100.
 - [ ] **Migraciones**: nunca `prisma migrate`; solo los SQL idempotentes de `prisma/sql/` (los aplica `install.sh`/`update.sh` **antes** de arrancar la API).
 - [ ] **Backups**: verificar restauración periódica de `backup.sh`; los backups contienen datos de clientes y la API key.
-- [ ] **Tokens**: no imprimirlos en logs, reportes ni notas de Kommo. `sync:meta-mappings` los envía solo en `Authorization: Bearer`.
+- [ ] **Tokens**: no imprimirlos en logs, reportes ni notas de Kommo. `sync:meta-mappings` y el cliente Meta los envían solo en `Authorization: Bearer`.
 
 ### Verificación después de desplegar
 
 ```bash
 bash scripts/healthcheck.sh
 # Debe mostrar OK de /health, /api/v1/products con withVariants,
-# product_variants.meta_retailer_id + su índice, y kommo_templates.
+# product_variants.meta_retailer_id + meta_mapping_locked + su índice,
+# kommo_templates y /api/v1/meta/catalog/search (si Meta está configurado).
 ```
 
 ### Desarrollo local del API

@@ -109,6 +109,7 @@ function mapVariante(variante: VarianteConRelaciones) {
     id: variante.idVariante,
     sku: variante.sku,
     metaRetailerId: variante.metaRetailerId,
+    metaMappingLocked: variante.metaMappingLocked,
     color: variante.color,
     descripcion: variante.descripcion,
     precioUsd: toNumber(variante.precioUsd),
@@ -528,6 +529,54 @@ async function ensureSkuAvailable(sku: string | undefined, excludeVariantId?: nu
   }
 }
 
+function normalizeMetaRetailerId(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+async function ensureMetaRetailerIdAvailable(
+  metaRetailerId: string | null | undefined,
+  excludeVariantId?: number
+): Promise<void> {
+  const normalized = normalizeMetaRetailerId(metaRetailerId);
+  if (!normalized) {
+    return;
+  }
+  const existing = await getPrisma().productoVariante.findFirst({
+    where: {
+      metaRetailerId: { equals: normalized, mode: 'insensitive' },
+      ...(excludeVariantId ? { NOT: { idVariante: excludeVariantId } } : {}),
+    },
+    select: { idVariante: true },
+  });
+  if (existing) {
+    throw new HttpError(
+      StatusCodes.CONFLICT,
+      `El Retailer ID "${normalized}" ya está asignado a otra variante.`,
+      'META_RETAILER_ID_DUPLICATED'
+    );
+  }
+}
+
+function ensureUniqueMetaRetailerIdsInBatch(variants: VariantBody[]): void {
+  const seen = new Set<string>();
+  for (const variant of variants) {
+    const normalized = normalizeMetaRetailerId(variant.metaRetailerId);
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      throw new HttpError(
+        StatusCodes.CONFLICT,
+        `El Retailer ID "${normalized}" está repetido en el mismo producto.`,
+        'META_RETAILER_ID_DUPLICATED'
+      );
+    }
+    seen.add(key);
+  }
+}
+
 async function validateVariantReferences(input: VariantBody | UpdateVariantBody): Promise<void> {
   if (input.estadoId !== undefined) {
     await ensureEstadoExists(input.estadoId);
@@ -572,6 +621,11 @@ function variantCreateData(input: VariantBody) {
     idGarantia: input.garantiaId ?? null,
     idCatalogo: input.catalogoId ?? null,
     kommoTemplateId: input.kommoTemplateId || null,
+    metaRetailerId: normalizeMetaRetailerId(input.metaRetailerId),
+    metaMappingLocked:
+      normalizeMetaRetailerId(input.metaRetailerId) !== null
+        ? input.metaMappingLocked ?? true
+        : input.metaMappingLocked ?? false,
   };
 }
 
@@ -609,6 +663,12 @@ function variantUpdateData(input: UpdateVariantBody): Prisma.ProductoVarianteUnc
   if (input.kommoTemplateId !== undefined) {
     data.kommoTemplateId = input.kommoTemplateId || null;
   }
+  if (input.metaRetailerId !== undefined) {
+    data.metaRetailerId = normalizeMetaRetailerId(input.metaRetailerId);
+    data.metaMappingLocked = input.metaMappingLocked === false ? false : true;
+  } else if (input.metaMappingLocked !== undefined) {
+    data.metaMappingLocked = input.metaMappingLocked;
+  }
 
   return data;
 }
@@ -622,8 +682,11 @@ export async function createProduct(input: CreateProductBody) {
     await ensureKommoTemplateExists(input.kommoTemplateId);
   }
 
+  ensureUniqueMetaRetailerIdsInBatch(input.variantes);
+
   for (const variante of input.variantes) {
     await ensureSkuAvailable(variante.sku);
+    await ensureMetaRetailerIdAvailable(variante.metaRetailerId);
     await validateVariantReferences(variante);
   }
 
@@ -706,6 +769,7 @@ export async function createVariant(productId: number, input: VariantBody) {
   }
 
   await ensureSkuAvailable(input.sku);
+  await ensureMetaRetailerIdAvailable(input.metaRetailerId);
   await validateVariantReferences(input);
 
   const now = new Date();
@@ -737,6 +801,9 @@ export async function updateVariant(variantId: number, input: UpdateVariantBody)
 
   if (input.sku !== undefined) {
     await ensureSkuAvailable(input.sku, variantId);
+  }
+  if (input.metaRetailerId !== undefined) {
+    await ensureMetaRetailerIdAvailable(input.metaRetailerId, variantId);
   }
   await validateVariantReferences(input);
 

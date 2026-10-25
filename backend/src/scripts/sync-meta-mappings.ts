@@ -41,6 +41,7 @@ interface VariantRow {
   sku: string | null;
   color: string | null;
   metaRetailerId: string | null;
+  metaMappingLocked: boolean;
   productName: string;
 }
 
@@ -289,6 +290,7 @@ async function loadVariants(): Promise<VariantRow[]> {
       sku: true,
       color: true,
       metaRetailerId: true,
+      metaMappingLocked: true,
       producto: { select: { producto: true } },
     },
     orderBy: { idVariante: 'asc' },
@@ -299,6 +301,7 @@ async function loadVariants(): Promise<VariantRow[]> {
     sku: row.sku,
     color: row.color,
     metaRetailerId: row.metaRetailerId,
+    metaMappingLocked: row.metaMappingLocked,
     productName: row.producto.producto,
   }));
 }
@@ -319,11 +322,13 @@ function buildIndexes(variants: VariantRow[]): VariantIndexes {
   const byName = new Map<string, VariantRow[]>();
   const byRetailerId = new Map<string, VariantRow[]>();
   for (const variant of variants) {
-    if (variant.sku) {
-      pushIndexed(bySku, normalizeSku(variant.sku), variant);
-    }
-    if (variant.productName) {
-      pushIndexed(byName, normalizeText(variant.productName), variant);
+    if (!variant.metaMappingLocked) {
+      if (variant.sku) {
+        pushIndexed(bySku, normalizeSku(variant.sku), variant);
+      }
+      if (variant.productName) {
+        pushIndexed(byName, normalizeText(variant.productName), variant);
+      }
     }
     if (variant.metaRetailerId) {
       pushIndexed(byRetailerId, normalizeRetailerId(variant.metaRetailerId), variant);
@@ -355,7 +360,9 @@ function matchItem(
       status: 'already_ok',
       variant: alreadyMapped[0]!,
       strategy: 'existing',
-      detail: 'retailer_id ya mapeado en Altosa',
+      detail: alreadyMapped[0]!.metaMappingLocked
+        ? 'retailer_id ya mapeado en Altosa (mapeo manual bloqueado)'
+        : 'retailer_id ya mapeado en Altosa',
     };
   }
   if (alreadyMapped.length > 1) {
@@ -557,6 +564,7 @@ async function applyProposals(proposals: Outcome[]): Promise<void> {
                     equals: outcome.item.retailerId,
                     mode: 'insensitive',
                   },
+                  metaMappingLocked: false,
                   NOT: { idVariante: outcome.variant!.idVariante },
                 },
                 data: { metaRetailerId: null },

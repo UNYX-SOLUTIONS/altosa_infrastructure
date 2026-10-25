@@ -3,9 +3,14 @@
 -- Meta exige como `product_retailer_id` el Retailer ID de su catálogo, que no
 -- coincide con el SKU interno (`product_variants.sku`). La columna es nullable:
 -- solo se llena para las variantes publicadas en el catálogo de Meta.
+-- `meta_mapping_locked` marca los mapeos manuales que el sync/backfill no
+-- deben proponer ni sobrescribir.
 
 ALTER TABLE product_variants
   ADD COLUMN IF NOT EXISTS meta_retailer_id TEXT;
+
+ALTER TABLE product_variants
+  ADD COLUMN IF NOT EXISTS meta_mapping_locked BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS product_variants_meta_retailer_id_idx
   ON product_variants (meta_retailer_id);

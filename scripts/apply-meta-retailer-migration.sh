@@ -37,4 +37,15 @@ INDEX_EXISTS="$(docker exec -i altosa-postgres psql -tA \
   exit 1
 }
 
-echo "[✓] Migración meta_retailer_id aplicada."
+LOCK_COLUMN="$(docker exec -i altosa-postgres psql -tA \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "SELECT column_name || ':' || data_type || ':' || is_nullable || ':' || coalesce(column_default, '') FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'product_variants' AND column_name = 'meta_mapping_locked';")"
+case "$LOCK_COLUMN" in
+  "meta_mapping_locked:boolean:NO:false"*) ;;
+  *)
+    echo "ERROR: product_variants.meta_mapping_locked no quedó como BOOLEAN NOT NULL DEFAULT FALSE (valor: ${LOCK_COLUMN:-ausente})." >&2
+    exit 1
+    ;;
+esac
+
+echo "[✓] Migración meta_retailer_id + meta_mapping_locked aplicada."
