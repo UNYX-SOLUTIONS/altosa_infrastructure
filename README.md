@@ -167,7 +167,7 @@ META_CATALOG_ID=1524398256394561 META_ACCESS_TOKEN=<token> \
   pnpm sync:meta-mappings -- --apply --match-by-name --report data/meta-report.csv
 ```
 
-Por defecto solo cruza por SKU/custom labels (determinista). `--match-by-name` habilita el cruce por nombre único (o nombre + color); revisar siempre el reporte antes de aplicar. Lo ambiguo, sin match o conflictivo se reporta y **no se escribe**. Solo actualiza `meta_retailer_id`; nunca SKU, precio ni otros campos. Sin `--apply` es dry-run. Los `retailer_id` ya mapeados se reportan como `already_ok` y no se vuelven a tocar. Las variantes con `meta_mapping_locked = true` se reportan como `already_ok` con detalle "mapeo manual bloqueado" y nunca se proponen, sobrescriben ni se liberan.
+Por defecto solo cruza por SKU/custom labels (determinista). `--match-by-name` habilita el cruce por nombre único (o nombre + color); revisar siempre el reporte antes de aplicar. Lo ambiguo, sin match o conflictivo se reporta y **no se escribe**. Solo actualiza `meta_retailer_id`; nunca SKU, precio ni otros campos. Sin `--apply` es dry-run. Los `retailer_id` ya mapeados se reportan como `already_ok` y no se vuelven a tocar. Si el ítem del catálogo ya está mapeado a una variante bloqueada, se reporta como `already_ok` con detalle "mapeo manual bloqueado"; las variantes bloqueadas sin ID no se proponen, y el sync nunca las sobrescribe ni libera.
 
 Mapeo manual/backfill para excepciones:
 

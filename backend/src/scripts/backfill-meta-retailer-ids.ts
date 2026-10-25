@@ -193,9 +193,10 @@ async function applyMappings(
 
   const existingMappings = await prisma.productoVariante.findMany({
     where: { metaRetailerId: { not: null } },
-    select: { sku: true, metaRetailerId: true },
+    select: { sku: true, metaRetailerId: true, metaMappingLocked: true },
   });
   const ownersByRetailer = new Map<string, Set<string>>();
+  const lockedOwnersByRetailer = new Map<string, Set<string>>();
   for (const mapping of existingMappings) {
     if (!mapping.metaRetailerId || !mapping.sku) {
       continue;
@@ -205,9 +206,29 @@ async function applyMappings(
       ownersByRetailer.set(key, new Set());
     }
     ownersByRetailer.get(key)!.add(normalizeSku(mapping.sku));
+    if (mapping.metaMappingLocked) {
+      if (!lockedOwnersByRetailer.has(key)) {
+        lockedOwnersByRetailer.set(key, new Set());
+      }
+      lockedOwnersByRetailer.get(key)!.add(normalizeSku(mapping.sku));
+    }
   }
 
   for (const row of rows) {
+    const lockedOwners = lockedOwnersByRetailer.get(normalizeRetailerId(row.retailerId));
+    const lockedByAnotherSku = lockedOwners
+      ? Array.from(lockedOwners).some((sku) => sku !== normalizeSku(row.sku))
+      : false;
+    if (lockedByAnotherSku) {
+      stats.conflicts += 1;
+      console.warn(
+        `[!] El Retailer ID "${row.retailerId}" pertenece a una variante bloqueada (${Array.from(
+          lockedOwners ?? []
+        ).join(', ')}); no se reasigna ni con --force. Desbloquéala desde el ERP.`
+      );
+      continue;
+    }
+
     const ownerSkus = ownersByRetailer.get(normalizeRetailerId(row.retailerId));
     const ownedByAnotherSku = ownerSkus
       ? Array.from(ownerSkus).some((sku) => sku !== normalizeSku(row.sku))
@@ -232,6 +253,7 @@ async function applyMappings(
         const cleared = await prisma.productoVariante.updateMany({
           where: {
             metaRetailerId: { equals: row.retailerId, mode: 'insensitive' },
+            metaMappingLocked: false,
             NOT: { sku: row.sku },
           },
           data: { metaRetailerId: null },
