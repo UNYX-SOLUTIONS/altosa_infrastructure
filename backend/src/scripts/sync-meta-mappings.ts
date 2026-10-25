@@ -47,6 +47,7 @@ interface VariantRow {
 interface VariantIndexes {
   bySku: Map<string, VariantRow[]>;
   byName: Map<string, VariantRow[]>;
+  byRetailerId: Map<string, VariantRow[]>;
 }
 
 type OutcomeStatus =
@@ -316,6 +317,7 @@ function pushIndexed(
 function buildIndexes(variants: VariantRow[]): VariantIndexes {
   const bySku = new Map<string, VariantRow[]>();
   const byName = new Map<string, VariantRow[]>();
+  const byRetailerId = new Map<string, VariantRow[]>();
   for (const variant of variants) {
     if (variant.sku) {
       pushIndexed(bySku, normalizeSku(variant.sku), variant);
@@ -323,8 +325,11 @@ function buildIndexes(variants: VariantRow[]): VariantIndexes {
     if (variant.productName) {
       pushIndexed(byName, normalizeText(variant.productName), variant);
     }
+    if (variant.metaRetailerId) {
+      pushIndexed(byRetailerId, normalizeRetailerId(variant.metaRetailerId), variant);
+    }
   }
-  return { bySku, byName };
+  return { bySku, byName, byRetailerId };
 }
 
 function matchItem(
@@ -339,6 +344,29 @@ function matchItem(
     strategy: '',
     detail: '',
   };
+
+  // Si el retailer_id ya está mapeado en Altosa, no se vuelve a proponer: el
+  // cron determinista debe ser estable aunque el mapeo se haya creado por
+  // nombre o por backfill.
+  const alreadyMapped = indexes.byRetailerId.get(normalizeRetailerId(item.retailerId)) ?? [];
+  if (alreadyMapped.length === 1) {
+    return {
+      ...base,
+      status: 'already_ok',
+      variant: alreadyMapped[0]!,
+      strategy: 'existing',
+      detail: 'retailer_id ya mapeado en Altosa',
+    };
+  }
+  if (alreadyMapped.length > 1) {
+    return {
+      ...base,
+      status: 'ambiguous',
+      variant: alreadyMapped[0]!,
+      strategy: 'existing',
+      detail: `hay ${alreadyMapped.length} variantes con el mismo meta_retailer_id`,
+    };
+  }
 
   const direct = indexes.bySku.get(normalizeSku(item.retailerId)) ?? [];
   if (direct.length === 1) {
