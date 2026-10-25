@@ -208,6 +208,7 @@ Hay dos caminos; hay que elegir uno:
 ### Orden de despliegue
 
 1. **Altosa**: `sudo bash update.sh` (o `install.sh` la primera vez). Ahora aplica las migraciones **antes** de reconstruir `altosa-api`.
+   - Solo API, sin recrear pgAdmin/PostgreSQL ni reiniciar Traefik: `sudo bash update.sh --api-only`.
 2. Verifica: `bash scripts/healthcheck.sh` (columna, índice, API con variantes y plantillas).
 3. **ERP**: `sudo bash deploy/deploy-prod.sh` (o `deploy/deploy-test.sh`). El build incluye `dist/scripts/sync-contifico.js` y el CMD aplica sus propias migraciones.
 4. Configura `META_ACCESS_TOKEN` en el `.env` de Altosa y corre el mapeo en dry-run; revisa el CSV y aplica.

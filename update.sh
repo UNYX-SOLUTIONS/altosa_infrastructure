@@ -5,15 +5,18 @@
 # Uso:
 #   sudo bash update.sh
 #   sudo bash update.sh --no-backup
+#   sudo bash update.sh --api-only   (solo API; no recrea pgAdmin/PostgreSQL/Traefik)
 # ============================================================================
 set -Eeuo pipefail
 cd "$(dirname "$0")"
 
 SKIP_BACKUP=0
+API_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --no-backup) SKIP_BACKUP=1 ;;
-    -h|--help) sed -n '1,15p' "$0"; exit 0 ;;
+    --api-only) API_ONLY=1 ;;
+    -h|--help) awk '/^set -Eeuo pipefail$/{exit} {print}' "$0"; exit 0 ;;
     *) echo "Opción desconocida: $arg" >&2; exit 1 ;;
   esac
 done
@@ -50,32 +53,42 @@ if [ "$SKIP_BACKUP" != 1 ]; then
   fi
 fi
 
-log "Configurando entrypoint de pgAdmin en Traefik"
-bash ./scripts/configure-traefik-pgadmin.sh "${PGADMIN_PUBLIC_PORT:-5050}"
+if [ "$API_ONLY" = 1 ]; then
+  log "Modo API-only: se omite pull, configuración de Traefik y recreación de pgAdmin/PostgreSQL."
+else
+  log "Configurando entrypoint de pgAdmin en Traefik"
+  bash ./scripts/configure-traefik-pgadmin.sh "${PGADMIN_PUBLIC_PORT:-5050}"
+
+  log "Descargando imágenes base"
+  # --ignore-pull-failures: altosa-api se construye localmente (build:) y no
+  # existe en un registro; postgres/pgadmin sí se actualizan desde Docker Hub.
+  docker compose pull --ignore-pull-failures
+fi
 
 log "Validando docker-compose"
 docker compose config >/dev/null
 
-log "Descargando imágenes base"
-# --ignore-pull-failures: altosa-api se construye localmente (build:) y no
-# existe en un registro; postgres/pgadmin sí se actualizan desde Docker Hub.
-docker compose pull --ignore-pull-failures
+if [ "$API_ONLY" = 1 ]; then
+  docker exec altosa-postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1 \
+    || fail "PostgreSQL no está corriendo. Ejecuta update.sh completo (sin --api-only)."
+  echo "[✓] PostgreSQL ya está corriendo (modo API-only)."
+else
+  log "Levantando PostgreSQL"
+  # La API se reconstruye DESPUÉS de aplicar las migraciones: el cliente Prisma
+  # selecciona todas las columnas del esquema y fallaría contra una BD sin la
+  # columna nueva. Mientras migra, la API anterior sigue sirviendo.
+  docker compose up -d postgres
 
-log "Levantando PostgreSQL"
-# La API se reconstruye DESPUÉS de aplicar las migraciones: el cliente Prisma
-# selecciona todas las columnas del esquema y fallaría contra una BD sin la
-# columna nueva. Mientras migra, la API anterior sigue sirviendo.
-docker compose up -d postgres
-
-log "Esperando PostgreSQL"
-for i in $(seq 1 60); do
-  if docker exec altosa-postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
-    echo "[✓] PostgreSQL disponible."
-    break
-  fi
-  [ "$i" -eq 60 ] && fail "PostgreSQL no respondió."
-  sleep 2
-done
+  log "Esperando PostgreSQL"
+  for i in $(seq 1 60); do
+    if docker exec altosa-postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
+      echo "[✓] PostgreSQL disponible."
+      break
+    fi
+    [ "$i" -eq 60 ] && fail "PostgreSQL no respondió."
+    sleep 2
+  done
+fi
 
 log "Aplicando migración de Kommo (kommo_templates)"
 bash ./scripts/apply-kommo-migration.sh
@@ -83,8 +96,14 @@ bash ./scripts/apply-kommo-migration.sh
 log "Aplicando migración de Meta (product_variants.meta_retailer_id)"
 bash ./scripts/apply-meta-retailer-migration.sh
 
-log "Reconstruyendo y levantando altosa-api"
-docker compose up -d --build
+if [ "$API_ONLY" = 1 ]; then
+  log "Reconstruyendo y reiniciando solo altosa-api (pgAdmin intacto)"
+  docker compose build api
+  docker compose up -d --no-deps api
+else
+  log "Reconstruyendo y levantando altosa-api"
+  docker compose up -d --build
+fi
 
 log "Esperando altosa-api"
 for i in $(seq 1 60); do
@@ -112,7 +131,7 @@ cat <<EOF
 ------------------------------------------------------------
  API URL:   https://${ALTOSA_PUBLIC_DOMAIN}
  Uploads:   ${ALTOSA_PUBLIC_URL_BASE}
-------------------------------------------------------------
+$(if [ "$API_ONLY" = 1 ]; then printf ' Modo:      solo altosa-api (pgAdmin/PostgreSQL sin recrear)\n'; fi)------------------------------------------------------------
  Si cambió ALTOSA_API_KEY, actualiza también el
  ALTOSA_API_KEY del .env.production del ERP y reinicia su backend.
 ============================================================
