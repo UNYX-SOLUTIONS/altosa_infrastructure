@@ -47,10 +47,18 @@ export function errorMiddleware(
   // Carrera entre dos asignaciones simultáneas: el índice único de la BD es la
   // última barrera, además de la validación de aplicación.
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    logger.warn(
+      {
+        target: error.meta?.target,
+        modelName: error.meta?.modelName,
+      },
+      'Conflicto de unicidad en altosa-api'
+    );
     res.status(StatusCodes.CONFLICT).json({
       success: false,
       message: 'El valor ya está en uso. Revisa el Retailer ID de Meta o los datos únicos.',
       code: 'ALTOSA_UNIQUE_CONFLICT',
+      details: error.meta?.target ?? null,
     });
     return;
   }
