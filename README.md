@@ -86,6 +86,84 @@ El Traefik de Hostinger usa `network_mode: host`; por eso el entrypoint escucha 
 
 No ejecutes `docker compose down -v` si quieres conservar la información.
 
+## Archivos .env (local vs VPS)
+
+Hay dos entornos y cada uno lee su propio archivo. **No son intercambiables:**
+
+| Archivo | Dónde vive | Lo lee | Para qué |
+|---|---|---|---|
+| `backend/.env` | tu máquina, junto al backend | `pnpm dev`, scripts `tsx` y Prisma CLI | Desarrollo local |
+| `backend/.env.example` | repo | — | Plantilla del entorno local |
+| `.env` (raíz) | VPS `/docker/altosa_infrastructure/.env` | `docker compose`, `install.sh`, `update.sh` y cron | Producción/Docker |
+| `.env.example` (raíz) | repo | — | Plantilla del entorno Docker/producción |
+
+- `pnpm dev` lee **solo** `backend/.env`; Docker lee **solo** el `.env` de la raíz.
+- El `.env` de la raíz no existe en tu copia local: se crea en el VPS y no se sube con los deploys.
+- El `backend/.env` no se sube y no lo usa Docker. El Dockerfile no copia `.env` y `.dockerignore` lo excluye; el contenedor recibe todo por `environment:` del compose desde la raíz.
+- El contenedor escucha en `4100`; tu `backend/.env` local usa `4199` (puedes cambiarlo).
+
+Nombres que cambian en la frontera de Docker:
+
+| En la raíz (VPS) | En el contenedor / local |
+|---|---|
+| `ALTOSA_API_KEY` | `API_KEY` |
+| `ALTOSA_PUBLIC_URL_BASE` | `PUBLIC_URL_BASE` |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `DATABASE_URL` (la arma el compose) |
+| `KOMMO_API_URL`, `KOMMO_API_KEY` | igual |
+| `META_CATALOG_ID`, `META_ACCESS_TOKEN`, `META_API_VERSION` | igual |
+| `PGADMIN_*` | solo VPS |
+
+Diferencias deliberadas entre las dos plantillas:
+
+- **Solo raíz**: `POSTGRES_*`, `PGADMIN_*`, `ALTOSA_PUBLIC_DOMAIN` (infraestructura/Traefik).
+- **Solo local**: `NODE_ENV`, `PORT`, `UPLOAD_DIR`, `DATABASE_URL`, `API_KEY`, `PUBLIC_URL_BASE`.
+- **Común a ambos**: `KOMMO_API_URL`, `KOMMO_API_KEY`, `META_CATALOG_ID`, `META_ACCESS_TOKEN`, `META_API_VERSION`.
+- Compose fija en producción `NODE_ENV=production`, `PORT=4100` y `UPLOAD_DIR=/data/uploads`; por eso no están en la raíz.
+
+Verificación de plantillas:
+
+```bash
+bash scripts/check-env-examples.sh
+```
+
+Compara las claves comunes, avisa de secretos vacíos y falla si falta una clave o si `KOMMO_API_URL`, `META_CATALOG_ID` o `META_API_VERSION` no coinciden. No imprime secretos.
+
+- El `API_KEY` local (`backend/.env`) debe coincidir con el `ALTOSA_API_KEY` del `.env` local del ERP. En el VPS, el `ALTOSA_API_KEY` del ERP debe coincidir con el de la raíz.
+- `META_*` está en ambos si quieres probar el selector en local y en producción; es el mismo token de System User. Si no pruebas Meta en local, deja `META_ACCESS_TOKEN` vacío: los productos funcionan y las rutas de Meta responden `503 META_NOT_CONFIGURED`.
+- Los `PGADMIN_*` solo viven en la raíz; no van al backend.
+- Nunca subas un `.env` real. Ambos están en `.gitignore`; usa `chmod 600` en el VPS y no los pegues en capturas ni en el chat.
+
+Para un entorno local nuevo:
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+# edita DATABASE_URL, API_KEY y, si aplica, KOMMO_*/META_*
+```
+
+> Si ya tienes `backend/.env`, **no lo copies encima**: usa `.env.example` solo como referencia y agrega las claves que falten.
+>
+> Tampoco copies `.env.example` (raíz) sobre un `.env` existente en el VPS: cambiaría la contraseña de Postgres, la de pgAdmin y la API key. Para un entorno nuevo, deja los secretos vacíos y `install.sh` los genera.
+
+El `.env` de la raíz lo crea/completa `install.sh`; las actualizaciones lo conservan.
+
+### Cambiar variables en producción
+
+Solo se edita `/docker/altosa_infrastructure/.env` en el VPS:
+
+```bash
+ssh root@<ALTOSA_VPS_IP>
+cd /docker/altosa_infrastructure
+nano .env
+chmod 600 .env
+sudo bash update.sh --api-only
+bash scripts/healthcheck.sh
+```
+
+- `--api-only` recrea `altosa-api` con las nuevas variables; no toca pgAdmin/PostgreSQL/Traefik.
+- Si cambias `ALTOSA_API_KEY`, actualiza también `ALTOSA_API_KEY` en `/opt/unyx-erp/.env.production` (o `.env.deploy`) y redespliega el ERP.
+- Si cambias `PGADMIN_*`, usa el update completo o recrea pgAdmin; `--api-only` no lo toca.
+- Si cambias `POSTGRES_PASSWORD`, no basta con el `.env`: la contraseña real ya está en el volumen de Postgres; hay que cambiarla en la base o recrear el volumen (con backup).
+
 ## API (altosa-api)
 
 Servicio sobre la base de datos del cliente (`backend/`) con endpoints de lectura
@@ -325,4 +403,6 @@ docker exec altosa-restore psql -U altosa_admin -d altosa -c "DROP SCHEMA public
 docker exec altosa-restore pg_restore -U altosa_admin -d altosa --no-owner --role=altosa_admin /dump/altosa_2026-10-15.schema.backup
 # Importante: avanza las secuencias de identidad (si no, los INSERT nuevos chocan con ids existentes):
 docker exec altosa-restore psql -U altosa_admin -d altosa -c "SELECT setval(pg_get_serial_sequence('products','id_producto'), (SELECT max(id_producto) FROM products)); SELECT setval(pg_get_serial_sequence('product_variants','id_variante'), (SELECT max(id_variante) FROM product_variants)); SELECT setval(pg_get_serial_sequence('documents','id'), (SELECT max(id) FROM documents));"
+```
+'), (SELECT max(id_producto) FROM products)); SELECT setval(pg_get_serial_sequence('product_variants','id_variante'), (SELECT max(id_variante) FROM product_variants)); SELECT setval(pg_get_serial_sequence('documents','id'), (SELECT max(id) FROM documents));"
 ```
