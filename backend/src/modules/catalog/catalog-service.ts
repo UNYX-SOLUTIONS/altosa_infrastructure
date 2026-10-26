@@ -1059,8 +1059,6 @@ export async function syncProducts(
           ...(item.usoRecomendado?.trim()
             ? { usoRecomendado: item.usoRecomendado.trim() }
             : {}),
-          estadoId,
-          isActive,
           updatedAt: now,
         },
       });
@@ -1095,8 +1093,6 @@ export async function syncProducts(
           existing?.especificacionesAdicionales,
           variante.especificaciones
         ),
-        estadoId: variantEstadoId,
-        isActive: variantIsActive,
         updatedAt: now,
       };
 
@@ -1107,7 +1103,13 @@ export async function syncProducts(
         });
         result.variantsUpdated += 1;
       } else {
-        await prisma.productoVariante.create({ data });
+        await prisma.productoVariante.create({
+          data: {
+            ...data,
+            estadoId: variantEstadoId,
+            isActive: variantIsActive,
+          },
+        });
         result.variantsCreated += 1;
       }
 
