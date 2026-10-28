@@ -13,6 +13,7 @@
     "prisma:generate": "prisma generate",
     "seed:products": "tsx src/scripts/seed-products.ts",
     "suggest:meta-mappings": "tsx src/scripts/suggest-meta-mappings.ts",
+    "reconcile:meta-variants": "tsx src/scripts/reconcile-meta-variants.ts",
     "backfill:meta-retailer-ids": "tsx src/scripts/backfill-meta-retailer-ids.ts",
     "sync:meta-mappings": "tsx src/scripts/sync-meta-mappings.ts"
   },
