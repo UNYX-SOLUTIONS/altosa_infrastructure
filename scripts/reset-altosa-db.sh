@@ -85,13 +85,36 @@ do
   fi
 done
 
-echo "[7/8] Creando índice único de meta_retailer_id..."
+echo "[7/9] Reiniciando secuencias..."
+docker exec -i "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT table_name, column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND (column_default LIKE 'nextval%' OR is_identity = 'YES')
+  LOOP
+    EXECUTE format(
+      'SELECT setval(pg_get_serial_sequence(%L, %L), COALESCE(MAX(%I), 0) + 1, false) FROM %I',
+      r.table_name,
+      r.column_name,
+      r.column_name,
+      r.table_name
+    );
+  END LOOP;
+END $$;
+SQL
+
+echo "[8/9] Creando índice único de meta_retailer_id..."
 docker exec -i "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
   -c "CREATE UNIQUE INDEX IF NOT EXISTS product_variants_meta_retailer_id_key
         ON product_variants (lower(btrim(meta_retailer_id)))
         WHERE meta_retailer_id IS NOT NULL;"
 
-echo "[8/8] Verificando conteos del backup..."
+echo "[9/9] Verificando conteos del backup..."
 RESULT="$(docker exec -i "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -F'|' -c "
   SELECT
     (SELECT count(*) FROM products),
