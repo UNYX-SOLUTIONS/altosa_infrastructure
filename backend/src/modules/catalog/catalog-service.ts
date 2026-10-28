@@ -986,16 +986,21 @@ export async function syncProducts(
     const primarySku = variantes[0]!.sku;
     const existingVariant = await prisma.productoVariante.findFirst({
       where: { sku: primarySku },
-      select: { idProducto: true },
+      select: {
+        idProducto: true,
+        producto: { select: { isActive: true } },
+      },
     });
 
     let productId = existingVariant?.idProducto ?? null;
+    let existingProductIsActive = existingVariant?.producto.isActive ?? false;
     let mergePrimaryVariant: {
       idVariante: number;
       color: string | null;
       descripcion: string | null;
       imagenUrl: string | null;
       especificacionesAdicionales: string | null;
+      isActive: boolean;
     } | null = null;
 
     if (productId === null) {
@@ -1006,6 +1011,7 @@ export async function syncProducts(
         },
         select: {
           idProducto: true,
+          isActive: true,
           variants: {
             select: {
               idVariante: true,
@@ -1013,12 +1019,14 @@ export async function syncProducts(
               descripcion: true,
               imagenUrl: true,
               especificacionesAdicionales: true,
+              isActive: true,
             },
           },
         },
         orderBy: { idProducto: 'asc' },
       });
       productId = existingProduct?.idProducto ?? null;
+      existingProductIsActive = existingProduct?.isActive ?? false;
 
       // Migración inicial desde Altosa: si el producto existe por nombre y
       // tiene una sola variante, reutilizamos esa variante cambiándole el SKU
@@ -1045,22 +1053,32 @@ export async function syncProducts(
     } else {
       await prisma.producto.update({
         where: { idProducto: productId },
-        data: {
-          producto: item.nombre.trim(),
-          // La taxonomía de Altosa es curada por el equipo de IA: el sync
-          // masivo de Contifico conserva categoría/subcategoría. Solo un
-          // update explícito del ERP (updateTaxonomy) puede mover el producto.
-          ...(item.updateTaxonomy ? { idSubCategoria: subcategoria.id } : {}),
-          // Si Contifico no trae descripción, no borramos el enriquecimiento
-          // que ya existía en Altosa.
-          ...(item.descripcion?.trim()
-            ? { descripcion: item.descripcion.trim() }
-            : {}),
-          ...(item.usoRecomendado?.trim()
-            ? { usoRecomendado: item.usoRecomendado.trim() }
-            : {}),
-          updatedAt: now,
-        },
+        data: existingProductIsActive
+          ? {
+              // Un producto aprobado es maestro en Altosa/ERP: el sync de
+              // Contifico no debe cambiar nombre, descripción ni uso. Solo se
+              // permite mover la taxonomía con un update explícito del ERP.
+              ...(item.updateTaxonomy
+                ? { idSubCategoria: subcategoria.id }
+                : {}),
+              updatedAt: now,
+            }
+          : {
+              producto: item.nombre.trim(),
+              // La taxonomía de Altosa es curada por el equipo de IA: el sync
+              // masivo de Contifico conserva categoría/subcategoría. Solo un
+              // update explícito del ERP (updateTaxonomy) puede mover el producto.
+              ...(item.updateTaxonomy ? { idSubCategoria: subcategoria.id } : {}),
+              // Si Contifico no trae descripción, no borramos el enriquecimiento
+              // que ya existía en Altosa.
+              ...(item.descripcion?.trim()
+                ? { descripcion: item.descripcion.trim() }
+                : {}),
+              ...(item.usoRecomendado?.trim()
+                ? { usoRecomendado: item.usoRecomendado.trim() }
+                : {}),
+              updatedAt: now,
+            },
       });
       result.productsUpdated += 1;
     }
@@ -1074,6 +1092,7 @@ export async function syncProducts(
           descripcion: true,
           imagenUrl: true,
           especificacionesAdicionales: true,
+          isActive: true,
         },
       });
       const existing =
@@ -1081,20 +1100,34 @@ export async function syncProducts(
 
       const variantIsActive = variante.isActive ?? isActive;
       const variantEstadoId = variantIsActive ? estados.activeId : estados.inactiveId;
+      const existingIsActive = existing?.isActive ?? false;
 
-      const data = {
-        idProducto: productId,
-        sku: variante.sku,
-        color: variante.color ?? existing?.color ?? null,
-        descripcion: variante.descripcion ?? existing?.descripcion ?? null,
-        precioUsd: variante.precioUsd,
-        imagenUrl: variante.imagenUrl ?? existing?.imagenUrl ?? null,
-        especificacionesAdicionales: mergeSyncSpecs(
-          existing?.especificacionesAdicionales,
-          variante.especificaciones
-        ),
-        updatedAt: now,
-      };
+      const data = existingIsActive
+        ? {
+            // Variante aprobada: conservar color, descripción e imagen. El
+            // sync solo actualiza precio/stock (especificaciones).
+            idProducto: productId,
+            sku: variante.sku,
+            precioUsd: variante.precioUsd,
+            especificacionesAdicionales: mergeSyncSpecs(
+              existing?.especificacionesAdicionales,
+              variante.especificaciones
+            ),
+            updatedAt: now,
+          }
+        : {
+            idProducto: productId,
+            sku: variante.sku,
+            color: variante.color ?? existing?.color ?? null,
+            descripcion: variante.descripcion ?? existing?.descripcion ?? null,
+            precioUsd: variante.precioUsd,
+            imagenUrl: variante.imagenUrl ?? existing?.imagenUrl ?? null,
+            especificacionesAdicionales: mergeSyncSpecs(
+              existing?.especificacionesAdicionales,
+              variante.especificaciones
+            ),
+            updatedAt: now,
+          };
 
       if (existing) {
         await prisma.productoVariante.update({

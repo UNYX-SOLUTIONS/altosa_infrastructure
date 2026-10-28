@@ -5,6 +5,7 @@
  *   pnpm sync:meta-mappings -- --file data/meta-catalog.json --dry-run
  *   pnpm sync:meta-mappings -- --file data/meta-catalog.json --apply
  *   pnpm sync:meta-mappings -- --apply --report data/meta-mapping-report.csv
+ *   pnpm sync:meta-mappings -- --apply --match-by-name --include-inactive
  *   pnpm sync:meta-mappings -- --apply          (lee Graph API)
  *
  * Modo live (sin --file): requiere META_CATALOG_ID y META_ACCESS_TOKEN.
@@ -20,6 +21,10 @@
  *
  * Por defecto solo se usan cruces deterministas (SKU/custom labels). El cruce
  * por nombre es opt-in con --match-by-name y debe revisarse en el reporte.
+ *
+ * Por defecto solo se cargan variantes y productos activos. Usa
+ * --include-inactive para pre-mapear también los inactivos (por ejemplo,
+ * productos de Contifico pendientes de revisión).
  *
  * Solo escribe `meta_retailer_id`; no toca SKUs, precios ni otros campos.
  * Por defecto es dry-run: se requiere --apply para escribir.
@@ -136,6 +141,7 @@ function assertKnownFlags(): void {
     '--apply',
     '--force',
     '--match-by-name',
+    '--include-inactive',
   ]);
   const args = process.argv.slice(2);
   const unknown = args.find(
@@ -147,7 +153,7 @@ function assertKnownFlags(): void {
   );
   if (unknown) {
     fail(
-      `Opción desconocida: ${unknown}. Uso: pnpm sync:meta-mappings -- [--file <export.json>] [--report <salida.csv>] [--match-by-name] [--apply] [--force]`
+      `Opción desconocida: ${unknown}. Uso: pnpm sync:meta-mappings -- [--file <export.json>] [--report <salida.csv>] [--match-by-name] [--include-inactive] [--apply] [--force]`
     );
   }
 }
@@ -282,9 +288,11 @@ async function fetchCatalogFromMeta(): Promise<MetaItem[]> {
   return items;
 }
 
-async function loadVariants(): Promise<VariantRow[]> {
+async function loadVariants(includeInactive: boolean): Promise<VariantRow[]> {
   const rows = await getPrisma().productoVariante.findMany({
-    where: { isActive: true, producto: { isActive: true } },
+    where: includeInactive
+      ? {}
+      : { isActive: true, producto: { isActive: true } },
     select: {
       idVariante: true,
       sku: true,
@@ -620,6 +628,7 @@ async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');
   const force = process.argv.includes('--force');
   const matchByName = process.argv.includes('--match-by-name');
+  const includeInactive = process.argv.includes('--include-inactive');
   const fileArg = readOption('file');
   const reportArg = readOption('report');
   if (process.argv.includes('--file') && !fileArg) {
@@ -633,7 +642,7 @@ async function main(): Promise<void> {
     ? parseMetaExport(await readFile(resolve(process.cwd(), fileArg), 'utf8'))
     : await fetchCatalogFromMeta();
 
-  const variants = await loadVariants();
+  const variants = await loadVariants(includeInactive);
   console.log(
     `Catálogo Meta: ${items.length} items (${fileArg ? `archivo ${fileArg}` : 'Graph API'})`
   );
