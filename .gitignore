@@ -10,4 +10,4 @@ backend/uploads/
 # Migraciones SQL versionadas (no son dumps)
 !backend/prisma/sql/
 !backend/prisma/sql/*.sql
-!backend/sql/*.sql
+!backend/sql/altosa_2026-10-15.schema.backup
