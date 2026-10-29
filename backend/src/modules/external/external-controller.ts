@@ -4,10 +4,17 @@ import { sendSuccess } from '../../utils/api-response';
 import {
   externalImportBodySchema,
   externalMetaPendingQuerySchema,
+  externalPendingQuerySchema,
   type ExternalItemInput,
   type ExternalMetaPendingQuery,
+  type ExternalPendingQuery,
 } from './external-schema';
 import * as externalService from './external-service';
+
+export async function listPending(req: Request, res: Response): Promise<void> {
+  const query = externalPendingQuerySchema.parse(req.query) as ExternalPendingQuery;
+  sendSuccess(res, await externalService.listPendingExternalItems(query));
+}
 
 export async function listMetaPending(req: Request, res: Response): Promise<void> {
   const query = externalMetaPendingQuerySchema.parse(

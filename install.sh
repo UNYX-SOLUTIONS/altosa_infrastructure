@@ -75,6 +75,9 @@ KOMMO_API_KEY=
 # El token de System User se completa después; no se versiona.
 META_CATALOG_ID=1524398256394561
 META_ACCESS_TOKEN=
+# Contifico: token de Altosa (el ERP ya no lo tiene).
+CONTIFICO_API_URL=https://api.contifico.com/sistema/api/v1
+CONTIFICO_API_KEY=
 EOF
   chmod 600 .env
   echo "[✓] .env creado con secretos nuevos."
@@ -93,6 +96,8 @@ else
   ensure_env KOMMO_API_KEY ''
   ensure_env META_CATALOG_ID 1524398256394561
   ensure_env META_ACCESS_TOKEN ''
+  ensure_env CONTIFICO_API_URL https://api.contifico.com/sistema/api/v1
+  ensure_env CONTIFICO_API_KEY ''
   chmod 600 .env
   echo "[✓] .env existente conservado y completado."
 fi
@@ -108,6 +113,9 @@ set +a
 [ "${#ALTOSA_API_KEY}" -ge 16 ] || fail "ALTOSA_API_KEY debe tener al menos 16 caracteres."
 if [ -z "${META_ACCESS_TOKEN:-}" ]; then
   warn "META_ACCESS_TOKEN vacío: sync:meta-mappings no podrá leer el catálogo de Meta hasta configurarlo."
+fi
+if [ -z "${CONTIFICO_API_KEY:-}" ]; then
+  warn "CONTIFICO_API_KEY vacío: el sync y write-through de Contifico no funcionarán hasta configurarlo en Altosa."
 fi
 
 log "Configurando entrypoint de pgAdmin en Traefik"
@@ -196,5 +204,6 @@ cat <<EOF
    ALTOSA_API_KEY=${ALTOSA_API_KEY}
 ------------------------------------------------------------
  Plantillas Kommo: configura KOMMO_API_URL y KOMMO_API_KEY en .env
+ Contifico: configura CONTIFICO_API_KEY en .env (el ERP ya no lo tiene)
 ============================================================
 EOF

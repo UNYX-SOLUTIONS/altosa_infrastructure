@@ -61,6 +61,14 @@ else
 fi
 echo
 
+echo "--- Contifico ---"
+if docker exec altosa-api node -e 'fetch("http://127.0.0.1:4100/api/v1/contifico/status",{headers:{"x-api-key":process.env.API_KEY}}).then(r=>r.json()).then(b=>{console.log(JSON.stringify(b.data));process.exit(b.data&&b.data.configured?0:1)}).catch(e=>{console.error(e.message);process.exit(1)})'; then
+  echo "OK: Contifico configurado en Altosa"
+else
+  echo "WARN: Contifico no está configurado en Altosa (define CONTIFICO_API_KEY en .env y reinicia altosa-api)" >&2
+fi
+echo
+
 echo "--- altosa_backend ---"
 docker network inspect altosa_backend --format '{{range $id,$c := .Containers}}{{println $c.Name}}{{end}}'
 echo

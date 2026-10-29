@@ -77,6 +77,7 @@ export const variantBodySchema = z.object({
   metaMappingLocked: z.boolean().optional(),
   contificoId: z.string().trim().max(100).nullable().optional(),
   contificoSku: z.string().trim().max(120).nullable().optional(),
+  writeThroughContifico: z.boolean().optional().default(false),
 });
 
 export const updateVariantBodySchema = variantBodySchema.partial().extend({
@@ -91,6 +92,7 @@ export const createProductBodySchema = z.object({
   estadoId: z.coerce.number().int().positive().max(32767).optional().default(1),
   kommoTemplateId: z.string().trim().min(1).max(80).nullable().optional(),
   variantes: z.array(variantBodySchema).max(100).optional().default([]),
+  writeThroughContifico: z.boolean().optional().default(false),
 });
 
 export const updateProductBodySchema = z.object({
@@ -130,9 +132,10 @@ export const syncProductBodySchema = z.object({
 export const syncProductsBodySchema = z.object({
   items: z.array(syncProductBodySchema).min(1).max(100),
   matchByName: z.boolean().optional().default(false),
-  // Solo el alta desde el ERP lo activa: intenta publicar las variantes nuevas
-  // en Meta. El sync masivo de Contifico nunca debe crear ítems externos.
+  // Solo el alta/edición desde el ERP lo activa: intenta publicar las
+  // variantes nuevas en Meta y crear/actualizar su producto plano en Contifico.
   syncExternals: z.boolean().optional().default(false),
+  writeThroughContifico: z.boolean().optional().default(false),
 });
 
 export const syncDeactivateBodySchema = z.object({

@@ -43,6 +43,9 @@ set +a
 if [ -z "${META_ACCESS_TOKEN:-}" ]; then
   warn "META_ACCESS_TOKEN vacío: el mapeo Meta (sync:meta-mappings) no funcionará hasta configurarlo."
 fi
+if [ -z "${CONTIFICO_API_KEY:-}" ]; then
+  warn "CONTIFICO_API_KEY vacío: el sync y write-through de Contifico no funcionarán hasta configurarlo en Altosa."
+fi
 
 docker network inspect altosa_backend >/dev/null 2>&1 || fail "No existe la red altosa_backend."
 

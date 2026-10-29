@@ -7,6 +7,12 @@ export const externalMetaPendingQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
 });
 
+export const externalPendingQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(1000).default(200),
+  search: z.string().trim().max(120).optional(),
+  source: z.enum(['all', 'meta', 'contifico']).default('all'),
+});
+
 export const externalItemSchema = z.object({
   source: z.enum(['meta', 'contifico']),
   externalId: z.string().trim().min(1).max(150),
@@ -31,4 +37,5 @@ export const externalImportBodySchema = z.object({
 });
 
 export type ExternalMetaPendingQuery = z.infer<typeof externalMetaPendingQuerySchema>;
+export type ExternalPendingQuery = z.infer<typeof externalPendingQuerySchema>;
 export type ExternalItemInput = z.infer<typeof externalItemSchema>;

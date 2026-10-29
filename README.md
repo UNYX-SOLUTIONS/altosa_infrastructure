@@ -196,8 +196,11 @@ La ruta `/uploads` es pública para servir las imágenes de variantes.
 - Plantillas de Kommo: `GET /api/v1/kommo/templates?search=` y `POST /api/v1/kommo/sync-templates`. Configura `KOMMO_API_URL` y `KOMMO_API_KEY` en `.env`.
 - Catálogo Meta (selector de mapeo): `GET /api/v1/meta/catalog/search?q=&limit=` y `GET /api/v1/meta/catalog/item?retailerId=`. Configura `META_CATALOG_ID`, `META_ACCESS_TOKEN` y, opcionalmente, `META_API_VERSION` en `.env`.
   - Creación plana desde el ERP: el alta con `syncExternals=true` publica la variante con `POST /{catalog_id}/products` y guarda el `meta_retailer_id` con `meta_mapping_locked=true`. Requiere permiso `catalog_management`; si Meta falla, el producto se crea igual en Altosa y la variante queda pendiente de mapeo manual (se registra una advertencia, no se bloquea el alta).
-- Referencias planas de Contifico: `product_variants.contifico_id` y `contifico_sku`. El ERP conserva su cliente/token actual y Altosa solo persiste/valida el mapeo (no llama a Contifico).
-- Ingesta inversa: `GET /api/v1/external/meta/pending?limit=&search=`, `GET /api/v1/external/links` y `POST /api/v1/external/import`. El ERP combina los pendientes de Meta y Contifico; la importación crea el producto padre agrupado por nombre base, una variante por ítem, con `is_active=false`, y guarda ambos IDs externos cuando el mismo ítem existe en las dos fuentes.
+- **Contifico (Altosa es la única dueña del token y del cliente)**: `GET /api/v1/contifico/status`, `/search`, `/products`, `/products/:id`, `/categories`; `POST /api/v1/contifico/import` y `POST /api/v1/contifico/sync`. Configura `CONTIFICO_API_URL`, `CONTIFICO_API_KEY` y, opcionalmente, `CONTIFICO_API_TOKEN` en `.env`.
+  - Sync nativo desde el VPS de Altosa: `bash scripts/contifico-sync.sh --dry-run` (no escribe) y `bash scripts/contifico-sync.sh --apply`. Opciones: `--match-by-name`, `--create-missing`, `--prune`, `--only-sku=SKU`.
+  - El ERP ya no tiene `CONTIFICO_API_KEY`: solo llama a Altosa. Las rutas `/api/v1/integrations/contifico/*` del ERP son un proxy de compatibilidad.
+- Referencias planas de Contifico: `product_variants.contifico_id` y `contifico_sku`, únicas por variante. Altosa crea/actualiza/desactiva el producto plano en Contifico en el alta/edición/borrado desde el ERP (`writeThroughContifico`).
+- Ingesta inversa: `GET /api/v1/external/pending?limit=&search=&source=`, `GET /api/v1/external/links` y `POST /api/v1/external/import`. La bandeja combina Meta + Contifico dentro de Altosa; la importación crea el producto padre agrupado por nombre base, una variante por ítem, con `is_active=false`, y guarda ambos IDs externos cuando el mismo ítem existe en las dos fuentes.
 
 ## Kommo (plantillas de chat)
 
@@ -222,18 +225,20 @@ KOMMO_API_KEY=<token de larga duración>
 
 ```
 Contifico (histórico + stock)
-   │  write-back de campos soportados
-   ▼
-ERP Unyx (administración y aprobación)
-   │  sync idempotente / reconciliación
-   ▼
-Altosa DB (lectura para n8n/Kommo) ──► Meta Catalog (canal WhatsApp)
+   ▲  write-back / sync nativo (Altosa es la única dueña del token)
+   │
+Altosa API + PostgreSQL (catálogo, integraciones y mapeos)
+   ▲  x-api-key (solo API Altosa)
+   │
+ERP Unyx (administración, aprobación y UI)
+   │
+   └──► Meta Catalog (canal WhatsApp, vía Altosa)
 ```
 
-- **Contifico** conserva el histórico y es la referencia de stock. El ERP **administra** y escribe de vuelta a Contifico los campos soportados: nombre, descripción comercial, categoría/línea, estado activo y precio/descripción de la variante principal. Después se refleja en la DB local y en Altosa.
-- **Stock**: se lee de Contifico; no se edita desde el ERP.
+- **Contifico** conserva el histórico y es la referencia de stock. **Altosa** administra el catálogo, ejecuta el sync y escribe de vuelta los campos soportados: nombre, descripción comercial, categoría/línea, estado activo y precio/descripción de la variante principal. El ERP solo envía la operación a Altosa.
+- **Stock**: lo sincroniza Altosa desde Contifico; no se edita desde el ERP.
 - **Imagen/thumbnail**: la API de Contifico no permite escribirla; se guarda en local/Altosa y el sync **preserva la imagen del ERP** si ya existe. La imagen de Contifico solo se usa para productos/variantes nuevos que no tengan una.
-- **Variantes extra**: se crean en local/Altosa; Contifico no las conoce (limitación de su API). La variante principal y el SKU de un producto sincronizado están bloqueados en el ERP; se cambian en Contifico.
+- **Variantes extra**: se crean en Altosa; Contifico no las conoce (limitación de su API). El SKU de una variante mapeada a Contifico está bloqueado en Altosa/ERP; se cambia en Contifico o se quita el mapeo.
 - **Aprobación**: `isActive` y `validation` son del ERP. Los productos que entran desde Contifico (incluido "Agregar desde Contifico") nacen inactivos y `PENDIENTE`; el equipo los revisa, aprueba y activa antes de que lleguen a n8n/Meta.
 - **Estado activo**: el sync conserva el `isActive` del producto y de cada variante del ERP. Si Contifico difiere, lo registra en el log para revisión; no reactiva nada. El estado de la variante se propaga a Altosa, así que n8n no ofrece variantes inactivas.
 - **Altosa DB** es la base de integración que leen n8n y Kommo. `product_variants.sku` es el código interno y **no se modifica** para Meta.
@@ -242,15 +247,15 @@ Altosa DB (lectura para n8n/Kommo) ──► Meta Catalog (canal WhatsApp)
 - **Keywords**: se editan en el ERP, pero Altosa no tiene columna ni el workflow las usa todavía. Si la IA debe buscar por keywords, hay que mapearlas.
 - **Subcategoría/taxonomía**: el ERP puede moverla; el sync la propaga a Altosa con `updateTaxonomy` solo cuando cambia explícitamente, y el sync masivo de Contifico no la pisa.
 - **Meta (contenido)**: la tarjeta se renderiza con precio, imagen y disponibilidad del catálogo de Meta. El mapeo solo resuelve identidad; escribir contenido a Meta queda para una fase posterior (el catálogo actual parece externo, `WC-...`).
-- **`--prune`**: no se usa en cron. La desactivación normal se hace desde el ERP y se propaga; `--prune` es una reconciliación manual/reporte para SKUs que ya no vienen de Contifico.
+- **`--prune`**: no se usa en cron. La desactivación normal se hace desde el ERP y se propaga vía Altosa; `--prune` es una reconciliación manual/reporte para SKUs que ya no vienen de Contifico.
 
 ### Propiedad de campos
 
 | Campo | Se edita en | Write-back / efecto |
 |---|---|---|
-| SKU producto / variante principal | Contifico | Bloqueado en el ERP; el sync lo refleja |
-| Nombre, descripción comercial, categoría/línea, estado | ERP | `PATCH /producto/{id}` en Contifico → local → Altosa |
-| Precio y descripción de la variante principal | ERP | `PATCH /producto/{id}` (`pvp1`, `descripcion`) → local → Altosa |
+| SKU producto / variante principal | Contifico | Bloqueado en Altosa/ERP; el sync lo refleja |
+| Nombre, descripción comercial, categoría/línea, estado | ERP | Altosa → `PATCH /producto/{id}` en Contifico |
+| Precio y descripción de la variante principal | ERP | Altosa → `PATCH /producto/{id}` (`pvp1`, `descripcion`) |
 | Stock | Contifico | Solo lectura en el ERP; se refleja en Altosa |
 | Imagen/thumbnail | ERP/local + Altosa | Contifico es read-only; el sync preserva la imagen del ERP |
 | Variantes extra | ERP/local + Altosa | No se crean en Contifico (limitación API) |
@@ -335,22 +340,23 @@ Hay dos caminos; hay que elegir uno:
 1. **Altosa**: `sudo bash update.sh` (o `install.sh` la primera vez). Ahora aplica las migraciones **antes** de reconstruir `altosa-api`.
    - Solo API, sin recrear pgAdmin/PostgreSQL ni reiniciar Traefik: `sudo bash update.sh --api-only`.
 2. Verifica: `bash scripts/healthcheck.sh` (columnas `meta_retailer_id`/`meta_mapping_locked`, índice, API con variantes y plantillas).
-3. **ERP**: `sudo bash deploy/deploy-prod.sh` (o `deploy/deploy-test.sh`). El build incluye `dist/scripts/sync-contifico.js` y el CMD aplica sus propias migraciones.
-4. Configura `META_ACCESS_TOKEN` en el `.env` de Altosa y corre el mapeo en dry-run; revisa el CSV y aplica.
-5. Instala los cron (abajo) cuando el reporte esté limpio.
+3. **ERP**: `sudo bash deploy/deploy-prod.sh` (o `deploy/deploy-test.sh`). El ERP ya no compila el sync de Contifico; solo el backfill de mapeos `dist/scripts/backfill-altosa-mappings.js`.
+4. Configura `CONTIFICO_API_KEY` en el `.env` de Altosa (el ERP ya no lo tiene) y corre `bash scripts/contifico-sync.sh --dry-run --match-by-name` antes del `--apply`.
+5. Configura `META_ACCESS_TOKEN` en el `.env` de Altosa y corre el mapeo en dry-run; revisa el CSV y aplica.
+6. Instala los cron (abajo) cuando el reporte esté limpio.
 
 ### Programación recomendada (VPS)
 
-Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper del ERP se ejecuta en el host y usa `docker compose` (hace preflight de salud y de Altosa):
+Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper de Contifico ahora vive en el VPS de Altosa:
 
 ```bash
-# Contifico -> ERP -> Altosa cada 15 min; el sync es idempotente.
-# Sin --prune: solo actualiza/crea lo que ya existe en el ERP.
-*/15 * * * * flock -n /tmp/unyx-contifico.lock /docker/unyx_erp/deploy/contifico-sync.sh --apply >> /var/log/unyx-contifico.log 2>&1
+# Contifico -> Altosa cada 15 min; el sync es idempotente.
+# Sin --prune: solo actualiza/crea lo que ya existe en Altosa.
+*/15 * * * * flock -n /tmp/altosa-contifico.lock bash -lc 'cd /docker/altosa_infrastructure && bash scripts/contifico-sync.sh --apply --match-by-name' >> /var/log/altosa-contifico.log 2>&1
 
 # Reconciliación semanal SOLO REPORTE: muestra SKUs que ya no vienen de Contifico.
-# No desactiva: la desactivación se hace en el ERP (isActive) y se propaga a Altosa.
-0 4 * * 0 flock -n /tmp/unyx-prune.lock /docker/unyx_erp/deploy/contifico-sync.sh --dry-run --prune >> /var/log/unyx-contifico-prune.log 2>&1
+# No desactiva: la desactivación se hace desde el ERP y se propaga vía Altosa.
+0 4 * * 0 flock -n /tmp/altosa-prune.lock bash -lc 'cd /docker/altosa_infrastructure && bash scripts/contifico-sync.sh --dry-run --prune' >> /var/log/altosa-contifico-prune.log 2>&1
 
 # Meta -> Altosa una vez al día. El token se lee del entorno del host y se pasa
 # por nombre a docker exec (no aparece en la línea de comandos).
@@ -358,15 +364,12 @@ Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper del ERP se e
 0 3 * * * flock -n /tmp/altosa-meta.lock sh -c 'set -a; . /docker/altosa_infrastructure/.env; set +a; docker exec -e META_CATALOG_ID -e META_ACCESS_TOKEN altosa-api node dist/scripts/sync-meta-mappings.js --apply --report /tmp/meta-report.csv && docker cp altosa-api:/tmp/meta-report.csv /var/log/altosa-meta-report.csv' >> /var/log/altosa-meta.log 2>&1
 ```
 
-- En el ambiente de pruebas, el wrapper del ERP usa otro compose/servicio:
-  `COMPOSE_FILE=/docker/unyx_erp/docker-compose.test.yml ENV_FILE=/docker/unyx_erp/.env.deploy BACKEND_SERVICE=backend /docker/unyx_erp/deploy/contifico-sync.sh --apply`
 - `META_CATALOG_ID`/`META_ACCESS_TOKEN`/`META_API_VERSION` se pasan al contenedor `altosa-api` desde el `.env` del compose (necesarios para el selector de la UI). El cron puede seguir pasándolos por nombre a `docker exec` o usar los del contenedor.
 - El cron de Meta usa solo cruces deterministas (SKU/custom labels). Si el catálogo no los trae, haz el mapeo inicial con `--match-by-name --dry-run`, revisa el CSV y aplica; el cron seguirá reportando los no mapeados.
 - En el VPS sin Node/pnpm, el backfill manual se puede ejecutar dentro del contenedor:
   `docker cp data/meta-retailer-ids.csv altosa-api:/tmp/ && docker exec altosa-api node dist/scripts/backfill-meta-retailer-ids.js /tmp/meta-retailer-ids.csv --dry-run`
 - Los scripts son idempotentes; si un cron se solapa, `flock` evita la doble ejecución.
-- Si `sync:contifico` termina con código distinto de 0, hubo fallos de push a Altosa: los productos afectados quedaron `SIN_SINCRONIZAR` y el siguiente sync (idempotente) los reintenta.
-- El ERP reintenta cada lote 3 veces con backoff antes de marcarlo como fallido.
+- Si `scripts/contifico-sync.sh` termina con código distinto de 0, revisa el JSON de respuesta y el log de `altosa-api`; el sync es idempotente y se puede reintentar.
 - Alertar si: falla el cron, `failed > 0`, aparecen SKUs sin mapeo nuevos, o Meta responde `131009`.
 
 ### Checklist de seguridad para producción

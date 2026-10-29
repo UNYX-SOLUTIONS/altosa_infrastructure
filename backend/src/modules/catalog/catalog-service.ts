@@ -3,8 +3,14 @@ import { StatusCodes } from 'http-status-codes';
 import { getPrisma } from '../../config/prisma';
 import { logger } from '../../config/logger';
 import { HttpError } from '../../utils/api-response';
+import { buildFlatName } from '../../utils/product-naming';
 import { findMetaCatalogItem } from '../meta/meta-client';
 import { publishVariantToMeta } from '../meta/meta-service';
+import { resolveSyncEstados } from './catalog-estados';
+import {
+  createContificoProductForVariant,
+  updateContificoProductForVariant,
+} from '../contifico/contifico-service';
 import type {
   CreateProductBody,
   DocumentsQuery,
@@ -774,6 +780,53 @@ export async function createProduct(input: CreateProductBody) {
     },
   });
 
+  if (input.writeThroughContifico) {
+    const taxonomy = await prisma.subcategoria.findUnique({
+      where: { id: input.subcategoryId },
+      select: { categoria: { select: { nombre: true } } },
+    });
+    const categoryName = taxonomy?.categoria?.nombre ?? null;
+    const variants = await prisma.productoVariante.findMany({
+      where: { idProducto: created.idProducto },
+      select: {
+        idVariante: true,
+        sku: true,
+        color: true,
+        descripcion: true,
+        precioUsd: true,
+        isActive: true,
+        contificoId: true,
+      },
+    });
+    for (const variant of variants) {
+      if (!variant.isActive || variant.contificoId) {
+        continue;
+      }
+      try {
+        const mapping = await createContificoProductForVariant({
+          productName: input.nombre,
+          sku: variant.sku,
+          color: variant.color,
+          description: variant.descripcion,
+          price: variant.precioUsd === null ? null : Number(variant.precioUsd),
+          isActive: variant.isActive,
+          categoryName,
+        });
+        if (mapping) {
+          await prisma.productoVariante.update({
+            where: { idVariante: variant.idVariante },
+            data: mapping,
+          });
+        }
+      } catch (error) {
+        logger.warn(
+          { err: error, productId: created.idProducto, variantId: variant.idVariante },
+          'No se pudo crear el producto plano en Contifico; queda pendiente de mapeo'
+        );
+      }
+    }
+  }
+
   return getProductById(created.idProducto);
 }
 
@@ -782,10 +835,59 @@ export async function updateProduct(id: number, input: UpdateProductBody) {
 
   const existing = await prisma.producto.findUnique({
     where: { idProducto: id },
-    select: { idProducto: true },
+    select: {
+      idProducto: true,
+      producto: true,
+      descripcion: true,
+      subcategoria: { select: { categoria: { select: { nombre: true } } } },
+      variants: {
+        select: {
+          idVariante: true,
+          sku: true,
+          color: true,
+          descripcion: true,
+          precioUsd: true,
+          isActive: true,
+          contificoId: true,
+        },
+      },
+    },
   });
   if (!existing) {
     throw new HttpError(StatusCodes.NOT_FOUND, 'Producto no encontrado.', 'ALTOSA_PRODUCT_NOT_FOUND');
+  }
+
+  const taxonomy = input.subcategoryId
+    ? await prisma.subcategoria.findUnique({
+        where: { id: input.subcategoryId },
+        select: { categoria: { select: { nombre: true } } },
+      })
+    : existing.subcategoria;
+  const categoryName =
+    taxonomy?.categoria?.nombre ?? existing.subcategoria?.categoria?.nombre ?? null;
+
+  if (
+    input.nombre !== undefined ||
+    input.descripcion !== undefined ||
+    input.isActive !== undefined
+  ) {
+    for (const variant of existing.variants) {
+      if (!variant.contificoId) {
+        continue;
+      }
+      await updateContificoProductForVariant(variant.contificoId, {
+        productName: input.nombre ?? existing.producto,
+        sku: variant.sku,
+        color: variant.color,
+        description:
+          input.descripcion !== undefined
+            ? input.descripcion
+            : variant.descripcion,
+        price: variant.precioUsd === null ? null : Number(variant.precioUsd),
+        isActive: input.isActive ?? variant.isActive,
+        categoryName,
+      });
+    }
   }
 
   if (input.subcategoryId !== undefined) {
@@ -822,7 +924,12 @@ export async function createVariant(productId: number, input: VariantBody) {
 
   const producto = await prisma.producto.findUnique({
     where: { idProducto: productId },
-    select: { idProducto: true, estadoId: true },
+    select: {
+      idProducto: true,
+      estadoId: true,
+      producto: true,
+      subcategoria: { select: { categoria: { select: { nombre: true } } } },
+    },
   });
   if (!producto) {
     throw new HttpError(StatusCodes.NOT_FOUND, 'Producto no encontrado.', 'ALTOSA_PRODUCT_NOT_FOUND');
@@ -847,7 +954,36 @@ export async function createVariant(productId: number, input: VariantBody) {
     include: VARIANT_RELATIONS,
   });
 
-  return mapVariante(created);
+  if (input.writeThroughContifico) {
+    try {
+      const mapping = await createContificoProductForVariant({
+        productName: producto.producto,
+        sku: created.sku,
+        color: created.color,
+        description: created.descripcion,
+        price: created.precioUsd === null ? null : Number(created.precioUsd),
+        isActive: created.isActive,
+        categoryName: producto.subcategoria?.categoria?.nombre ?? null,
+      });
+      if (mapping) {
+        await prisma.productoVariante.update({
+          where: { idVariante: created.idVariante },
+          data: mapping,
+        });
+      }
+    } catch (error) {
+      logger.warn(
+        { err: error, productId, variantId: created.idVariante },
+        'Variante creada en Altosa, pero no se pudo crear su producto en Contifico'
+      );
+    }
+  }
+
+  const saved = await prisma.productoVariante.findUniqueOrThrow({
+    where: { idVariante: created.idVariante },
+    include: VARIANT_RELATIONS,
+  });
+  return mapVariante(saved);
 }
 
 export async function updateVariant(variantId: number, input: UpdateVariantBody) {
@@ -855,10 +991,63 @@ export async function updateVariant(variantId: number, input: UpdateVariantBody)
 
   const existing = await prisma.productoVariante.findUnique({
     where: { idVariante: variantId },
-    select: { idVariante: true },
+    select: {
+      idVariante: true,
+      idProducto: true,
+      sku: true,
+      color: true,
+      descripcion: true,
+      precioUsd: true,
+      isActive: true,
+      contificoId: true,
+      producto: {
+        select: {
+          producto: true,
+          subcategoria: { select: { categoria: { select: { nombre: true } } } },
+        },
+      },
+    },
   });
   if (!existing) {
     throw new HttpError(StatusCodes.NOT_FOUND, 'Variante no encontrada.', 'ALTOSA_VARIANT_NOT_FOUND');
+  }
+
+  if (
+    existing.contificoId &&
+    input.sku !== undefined &&
+    input.sku !== existing.sku
+  ) {
+    throw new HttpError(
+      StatusCodes.CONFLICT,
+      'El SKU de una variante mapeada a Contifico no se puede cambiar desde Altosa. Actualízalo en Contifico o quita el mapeo primero.',
+      'CONTIFICO_VARIANT_SKU_LOCKED'
+    );
+  }
+
+  if (
+    existing.contificoId &&
+    (input.color !== undefined ||
+      input.descripcion !== undefined ||
+      input.precioUsd !== undefined ||
+      input.isActive !== undefined)
+  ) {
+    await updateContificoProductForVariant(existing.contificoId, {
+      productName: existing.producto.producto,
+      sku: existing.sku,
+      color: input.color ?? existing.color,
+      description:
+        input.descripcion !== undefined
+          ? input.descripcion
+          : existing.descripcion,
+      price:
+        input.precioUsd !== undefined
+          ? input.precioUsd
+          : existing.precioUsd === null
+            ? null
+            : Number(existing.precioUsd),
+      isActive: input.isActive ?? existing.isActive,
+      categoryName: existing.producto.subcategoria?.categoria?.nombre ?? null,
+    });
   }
 
   if (input.sku !== undefined) {
@@ -905,31 +1094,14 @@ interface SyncProductsResult {
     failed: number;
     warnings: string[];
   };
-}
-
-interface ResolvedEstados {
-  activeId: number;
-  inactiveId: number;
-}
-
-export async function resolveSyncEstados(): Promise<ResolvedEstados> {
-  const estados = await getPrisma().estado.findMany({ orderBy: { id: 'asc' } });
-  if (estados.length === 0) {
-    throw new HttpError(
-      StatusCodes.PRECONDITION_FAILED,
-      'No hay estados configurados en la base de datos de Altosa.',
-      'ALTOSA_ESTADOS_NOT_CONFIGURED'
-    );
-  }
-
-  const active =
-    estados.find((estado) => estado.permiteRag) ??
-    estados.find((estado) => /activ|aprob/i.test(estado.estado)) ??
-    estados[0]!;
-  const inactive =
-    estados.find((estado) => /inactiv|desactiv/i.test(estado.estado)) ?? active;
-
-  return { activeId: active.id, inactiveId: inactive.id };
+  contifico?: {
+    mapped: number;
+    created: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+    warnings: string[];
+  };
 }
 
 function normalizeSyncVariant(input: SyncProductBody['variantes'][number]) {
@@ -944,27 +1116,6 @@ function normalizeSyncVariant(input: SyncProductBody['variantes'][number]) {
     contificoId: input.contificoId?.trim() || null,
     contificoSku: input.contificoSku?.trim() || null,
   };
-}
-
-/**
- * Nombre plano para catálogos externos (Meta/Contifico): producto padre +
- * variante, salvo que la variante no aporte un sufijo real (p. ej. "Estándar").
- */
-function buildFlatName(productName: string, variantColor: string | null): string {
-  const base = productName.trim();
-  const suffix = variantColor?.trim();
-  if (!suffix || /^est[aá]ndar$/i.test(suffix)) {
-    return base;
-  }
-  const normalizedBase = base
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-  const normalizedSuffix = suffix
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-  return normalizedBase.includes(normalizedSuffix) ? base : `${base} ${suffix}`;
 }
 
 /**
@@ -1002,11 +1153,16 @@ function mergeSyncSpecs(
  */
 export async function syncProducts(
   items: SyncProductBody[],
-  options: { matchByName?: boolean; syncExternals?: boolean } = {}
+  options: {
+    matchByName?: boolean;
+    syncExternals?: boolean;
+    writeThroughContifico?: boolean;
+  } = {}
 ): Promise<SyncProductsResult> {
   const prisma = getPrisma();
   const matchByName = options.matchByName ?? false;
   const syncExternals = options.syncExternals ?? false;
+  const writeThroughContifico = options.writeThroughContifico ?? false;
   const estados = await resolveSyncEstados();
   const now = new Date();
   const result: SyncProductsResult = {
@@ -1016,6 +1172,18 @@ export async function syncProducts(
     variantsUpdated: 0,
     ...(syncExternals
       ? { meta: { mapped: 0, created: 0, skipped: 0, failed: 0, warnings: [] } }
+      : {}),
+    ...(writeThroughContifico
+      ? {
+          contifico: {
+            mapped: 0,
+            created: 0,
+            updated: 0,
+            skipped: 0,
+            failed: 0,
+            warnings: [],
+          },
+        }
       : {}),
   };
 
@@ -1281,6 +1449,80 @@ export async function syncProducts(
               'No se pudo publicar la variante en Meta; queda pendiente de mapeo'
             );
           }
+        }
+      }
+
+      if (writeThroughContifico && result.contifico) {
+        if (savedVariant.contificoId) {
+          try {
+            await updateContificoProductForVariant(savedVariant.contificoId, {
+              productName: item.nombre,
+              sku: savedVariant.sku,
+              color: savedVariant.color,
+              description: savedVariant.descripcion,
+              price:
+                savedVariant.precioUsd === null
+                  ? null
+                  : Number(savedVariant.precioUsd),
+              isActive: savedVariant.isActive,
+              categoryName: item.categoria,
+            });
+            result.contifico.updated += 1;
+          } catch (error) {
+            result.contifico.failed += 1;
+            const message =
+              error instanceof Error
+                ? error.message
+                : 'Error desconocido actualizando Contifico';
+            result.contifico.warnings.push(
+              `Variante ${savedVariant.sku ?? savedVariant.idVariante}: ${message}`
+            );
+            logger.warn(
+              { err: error, variantId: savedVariant.idVariante, sku: savedVariant.sku },
+              'No se pudo actualizar el producto plano en Contifico'
+            );
+          }
+        } else if (savedVariant.isActive) {
+          try {
+            const mapping = await createContificoProductForVariant({
+              productName: item.nombre,
+              sku: savedVariant.sku,
+              color: savedVariant.color,
+              description: savedVariant.descripcion,
+              price:
+                savedVariant.precioUsd === null
+                  ? null
+                  : Number(savedVariant.precioUsd),
+              isActive: savedVariant.isActive,
+              categoryName: item.categoria,
+            });
+            if (mapping) {
+              await prisma.productoVariante.update({
+                where: { idVariante: savedVariant.idVariante },
+                data: mapping,
+              });
+              savedVariant.contificoId = mapping.contificoId;
+              savedVariant.contificoSku = mapping.contificoSku;
+              result.contifico.created += 1;
+            } else {
+              result.contifico.skipped += 1;
+            }
+          } catch (error) {
+            result.contifico.failed += 1;
+            const message =
+              error instanceof Error
+                ? error.message
+                : 'Error desconocido creando en Contifico';
+            result.contifico.warnings.push(
+              `Variante ${savedVariant.sku ?? savedVariant.idVariante}: ${message}`
+            );
+            logger.warn(
+              { err: error, variantId: savedVariant.idVariante, sku: savedVariant.sku },
+              'No se pudo crear el producto plano en Contifico; queda pendiente de mapeo'
+            );
+          }
+        } else {
+          result.contifico.skipped += 1;
         }
       }
 

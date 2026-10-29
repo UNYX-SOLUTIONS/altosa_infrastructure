@@ -107,8 +107,13 @@ export async function deleteVariant(req: Request, res: Response): Promise<void> 
 }
 
 export async function syncProducts(req: Request, res: Response): Promise<void> {
-  const { items, matchByName, syncExternals } = syncProductsBodySchema.parse(req.body);
-  const result = await catalogService.syncProducts(items, { matchByName, syncExternals });
+  const { items, matchByName, syncExternals, writeThroughContifico } =
+    syncProductsBodySchema.parse(req.body);
+  const result = await catalogService.syncProducts(items, {
+    matchByName,
+    syncExternals,
+    writeThroughContifico,
+  });
   sendSuccess(res, result);
 }
 

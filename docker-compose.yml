@@ -73,6 +73,9 @@ services:
       META_CATALOG_ID: ${META_CATALOG_ID:-}
       META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
       META_API_VERSION: ${META_API_VERSION:-v26.0}
+      CONTIFICO_API_URL: ${CONTIFICO_API_URL:-https://api.contifico.com/sistema/api/v1}
+      CONTIFICO_API_KEY: ${CONTIFICO_API_KEY:-}
+      CONTIFICO_API_TOKEN: ${CONTIFICO_API_TOKEN:-}
     volumes:
       - uploads_data:/data/uploads
     depends_on:
