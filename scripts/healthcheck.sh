@@ -38,6 +38,18 @@ else
 fi
 echo
 
+echo "--- contifico_id + contifico_sku ---"
+CONTIFICO_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='contifico_id';")"
+CONTIFICO_SKU_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='contifico_sku';")"
+CONTIFICO_IDX="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND tablename='product_variants' AND indexname='product_variants_contifico_id_key';")"
+if [ -n "$CONTIFICO_COL" ] && [ -n "$CONTIFICO_SKU_COL" ] && printf '%s' "$CONTIFICO_IDX" | grep -q '^CREATE UNIQUE INDEX'; then
+  echo "OK: product_variants.$CONTIFICO_COL + product_variants.$CONTIFICO_SKU_COL + índice único Contifico"
+else
+  echo "ERROR: falta product_variants.contifico_id, contifico_sku o el índice único (ejecuta scripts/apply-contifico-migration.sh)" >&2
+  exit 1
+fi
+echo
+
 echo "--- kommo_templates ---"
 KOMMO_TABLE="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT to_regclass('public.kommo_templates');")"
 KOMMO_VARIANT_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='kommo_template_id';")"

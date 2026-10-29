@@ -96,6 +96,9 @@ bash ./scripts/apply-kommo-migration.sh
 log "Aplicando migración de Meta (meta_retailer_id, meta_mapping_locked)"
 bash ./scripts/apply-meta-retailer-migration.sh
 
+log "Aplicando migración de Contifico (contifico_id, contifico_sku)"
+bash ./scripts/apply-contifico-migration.sh
+
 if [ "$API_ONLY" = 1 ]; then
   log "Reconstruyendo y reiniciando solo altosa-api (pgAdmin intacto)"
   docker compose build api

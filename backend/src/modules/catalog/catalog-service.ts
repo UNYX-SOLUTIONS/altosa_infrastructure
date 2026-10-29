@@ -1,8 +1,10 @@
 import type { Prisma } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
 import { getPrisma } from '../../config/prisma';
+import { logger } from '../../config/logger';
 import { HttpError } from '../../utils/api-response';
 import { findMetaCatalogItem } from '../meta/meta-client';
+import { publishVariantToMeta } from '../meta/meta-service';
 import type {
   CreateProductBody,
   DocumentsQuery,
@@ -111,6 +113,8 @@ function mapVariante(variante: VarianteConRelaciones) {
     sku: variante.sku,
     metaRetailerId: variante.metaRetailerId,
     metaMappingLocked: variante.metaMappingLocked,
+    contificoId: variante.contificoId,
+    contificoSku: variante.contificoSku,
     color: variante.color,
     descripcion: variante.descripcion,
     precioUsd: toNumber(variante.precioUsd),
@@ -535,6 +539,11 @@ function normalizeMetaRetailerId(value: string | null | undefined): string | nul
   return normalized ? normalized : null;
 }
 
+function normalizeContificoId(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
 async function ensureMetaRetailerIdAvailable(
   metaRetailerId: string | null | undefined,
   excludeVariantId?: number
@@ -561,8 +570,7 @@ async function ensureMetaRetailerIdAvailable(
 
 async function ensureMetaRetailerIdExists(
   metaRetailerId: string | null | undefined
-): Promise<void> {
-  const normalized = normalizeMetaRetailerId(metaRetailerId);
+): Promise<void> {  const normalized = normalizeMetaRetailerId(metaRetailerId);
   if (!normalized) {
     return;
   }
@@ -572,6 +580,30 @@ async function ensureMetaRetailerIdExists(
       StatusCodes.NOT_FOUND,
       `El Retailer ID "${normalized}" no existe en el catálogo de Meta.`,
       'META_ITEM_NOT_FOUND'
+    );
+  }
+}
+
+async function ensureContificoIdAvailable(
+  contificoId: string | null | undefined,
+  excludeVariantId?: number
+): Promise<void> {
+  const normalized = normalizeContificoId(contificoId);
+  if (!normalized) {
+    return;
+  }
+  const existing = await getPrisma().productoVariante.findFirst({
+    where: {
+      contificoId: { equals: normalized, mode: 'insensitive' },
+      ...(excludeVariantId ? { NOT: { idVariante: excludeVariantId } } : {}),
+    },
+    select: { idVariante: true },
+  });
+  if (existing) {
+    throw new HttpError(
+      StatusCodes.CONFLICT,
+      `El producto de Contifico "${normalized}" ya está asignado a otra variante.`,
+      'CONTIFICO_ID_DUPLICATED'
     );
   }
 }
@@ -644,6 +676,8 @@ function variantCreateData(input: VariantBody) {
       normalizeMetaRetailerId(input.metaRetailerId) !== null
         ? input.metaMappingLocked ?? true
         : input.metaMappingLocked ?? false,
+    contificoId: normalizeContificoId(input.contificoId),
+    contificoSku: input.contificoSku?.trim() || null,
   };
 }
 
@@ -687,6 +721,12 @@ function variantUpdateData(input: UpdateVariantBody): Prisma.ProductoVarianteUnc
   } else if (input.metaMappingLocked !== undefined) {
     data.metaMappingLocked = input.metaMappingLocked;
   }
+  if (input.contificoId !== undefined) {
+    data.contificoId = normalizeContificoId(input.contificoId);
+  }
+  if (input.contificoSku !== undefined) {
+    data.contificoSku = input.contificoSku?.trim() || null;
+  }
 
   return data;
 }
@@ -706,6 +746,7 @@ export async function createProduct(input: CreateProductBody) {
     await ensureSkuAvailable(variante.sku);
     await ensureMetaRetailerIdExists(variante.metaRetailerId);
     await ensureMetaRetailerIdAvailable(variante.metaRetailerId);
+    await ensureContificoIdAvailable(variante.contificoId);
     await validateVariantReferences(variante);
   }
 
@@ -790,6 +831,7 @@ export async function createVariant(productId: number, input: VariantBody) {
   await ensureSkuAvailable(input.sku);
   await ensureMetaRetailerIdExists(input.metaRetailerId);
   await ensureMetaRetailerIdAvailable(input.metaRetailerId);
+  await ensureContificoIdAvailable(input.contificoId);
   await validateVariantReferences(input);
 
   const now = new Date();
@@ -826,6 +868,9 @@ export async function updateVariant(variantId: number, input: UpdateVariantBody)
     await ensureMetaRetailerIdExists(input.metaRetailerId);
     await ensureMetaRetailerIdAvailable(input.metaRetailerId, variantId);
   }
+  if (input.contificoId !== undefined) {
+    await ensureContificoIdAvailable(input.contificoId, variantId);
+  }
   await validateVariantReferences(input);
 
   const data = variantUpdateData(input);
@@ -853,6 +898,13 @@ interface SyncProductsResult {
   productsUpdated: number;
   variantsCreated: number;
   variantsUpdated: number;
+  meta?: {
+    mapped: number;
+    created: number;
+    skipped: number;
+    failed: number;
+    warnings: string[];
+  };
 }
 
 interface ResolvedEstados {
@@ -860,7 +912,7 @@ interface ResolvedEstados {
   inactiveId: number;
 }
 
-async function resolveSyncEstados(): Promise<ResolvedEstados> {
+export async function resolveSyncEstados(): Promise<ResolvedEstados> {
   const estados = await getPrisma().estado.findMany({ orderBy: { id: 'asc' } });
   if (estados.length === 0) {
     throw new HttpError(
@@ -889,7 +941,30 @@ function normalizeSyncVariant(input: SyncProductBody['variantes'][number]) {
     imagenUrl: input.imagenUrl?.trim() || null,
     especificaciones: input.especificaciones ?? {},
     isActive: input.isActive,
+    contificoId: input.contificoId?.trim() || null,
+    contificoSku: input.contificoSku?.trim() || null,
   };
+}
+
+/**
+ * Nombre plano para catálogos externos (Meta/Contifico): producto padre +
+ * variante, salvo que la variante no aporte un sufijo real (p. ej. "Estándar").
+ */
+function buildFlatName(productName: string, variantColor: string | null): string {
+  const base = productName.trim();
+  const suffix = variantColor?.trim();
+  if (!suffix || /^est[aá]ndar$/i.test(suffix)) {
+    return base;
+  }
+  const normalizedBase = base
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const normalizedSuffix = suffix
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return normalizedBase.includes(normalizedSuffix) ? base : `${base} ${suffix}`;
 }
 
 /**
@@ -927,10 +1002,11 @@ function mergeSyncSpecs(
  */
 export async function syncProducts(
   items: SyncProductBody[],
-  options: { matchByName?: boolean } = {}
+  options: { matchByName?: boolean; syncExternals?: boolean } = {}
 ): Promise<SyncProductsResult> {
   const prisma = getPrisma();
   const matchByName = options.matchByName ?? false;
+  const syncExternals = options.syncExternals ?? false;
   const estados = await resolveSyncEstados();
   const now = new Date();
   const result: SyncProductsResult = {
@@ -938,6 +1014,9 @@ export async function syncProducts(
     productsUpdated: 0,
     variantsCreated: 0,
     variantsUpdated: 0,
+    ...(syncExternals
+      ? { meta: { mapped: 0, created: 0, skipped: 0, failed: 0, warnings: [] } }
+      : {}),
   };
 
   for (const item of items) {
@@ -980,6 +1059,8 @@ export async function syncProducts(
               imagenUrl: null,
               especificaciones: {},
               isActive,
+              contificoId: null,
+              contificoSku: null,
             },
           ];
 
@@ -1093,6 +1174,8 @@ export async function syncProducts(
           imagenUrl: true,
           especificacionesAdicionales: true,
           isActive: true,
+          metaRetailerId: true,
+          metaMappingLocked: true,
         },
       });
       const existing =
@@ -1105,7 +1188,8 @@ export async function syncProducts(
       const data = existingIsActive
         ? {
             // Variante aprobada: conservar color, descripción e imagen. El
-            // sync solo actualiza precio/stock (especificaciones).
+            // sync solo actualiza precio/stock (especificaciones) y los IDs
+            // externos que vengan del ERP.
             idProducto: productId,
             sku: variante.sku,
             precioUsd: variante.precioUsd,
@@ -1113,6 +1197,12 @@ export async function syncProducts(
               existing?.especificacionesAdicionales,
               variante.especificaciones
             ),
+            ...(variante.contificoId
+              ? {
+                  contificoId: variante.contificoId,
+                  contificoSku: variante.contificoSku ?? variante.sku,
+                }
+              : {}),
             updatedAt: now,
           }
         : {
@@ -1126,17 +1216,24 @@ export async function syncProducts(
               existing?.especificacionesAdicionales,
               variante.especificaciones
             ),
+            ...(variante.contificoId
+              ? {
+                  contificoId: variante.contificoId,
+                  contificoSku: variante.contificoSku ?? variante.sku,
+                }
+              : {}),
             updatedAt: now,
           };
 
+      let savedVariant;
       if (existing) {
-        await prisma.productoVariante.update({
+        savedVariant = await prisma.productoVariante.update({
           where: { idVariante: existing.idVariante },
           data,
         });
         result.variantsUpdated += 1;
       } else {
-        await prisma.productoVariante.create({
+        savedVariant = await prisma.productoVariante.create({
           data: {
             ...data,
             estadoId: variantEstadoId,
@@ -1144,6 +1241,47 @@ export async function syncProducts(
           },
         });
         result.variantsCreated += 1;
+      }
+
+      if (syncExternals && result.meta && savedVariant.isActive) {
+        if (savedVariant.metaRetailerId) {
+          result.meta.skipped += 1;
+        } else {
+          try {
+            const published = await publishVariantToMeta({
+              retailerId: savedVariant.sku?.trim() || `ALT-${savedVariant.idVariante}`,
+              name: buildFlatName(item.nombre, savedVariant.color),
+              description: savedVariant.descripcion,
+              price:
+                savedVariant.precioUsd === null ? null : Number(savedVariant.precioUsd),
+              imageUrl: savedVariant.imagenUrl,
+              url: savedVariant.urlProducto,
+            });
+            await prisma.productoVariante.update({
+              where: { idVariante: savedVariant.idVariante },
+              data: {
+                metaRetailerId: published.retailerId,
+                metaMappingLocked: true,
+              },
+            });
+            if (published.created) {
+              result.meta.created += 1;
+            } else {
+              result.meta.mapped += 1;
+            }
+          } catch (error) {
+            result.meta.failed += 1;
+            const message =
+              error instanceof Error ? error.message : 'Error desconocido publicando en Meta';
+            result.meta.warnings.push(
+              `Variante ${savedVariant.sku ?? savedVariant.idVariante}: ${message}`
+            );
+            logger.warn(
+              { err: error, variantId: savedVariant.idVariante, sku: savedVariant.sku },
+              'No se pudo publicar la variante en Meta; queda pendiente de mapeo'
+            );
+          }
+        }
       }
 
       if (variantIndex === 0) {

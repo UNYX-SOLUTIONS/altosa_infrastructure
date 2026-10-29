@@ -274,8 +274,7 @@ export async function findMetaCatalogItem(
 export async function searchMetaCatalog(
   query: string,
   limit: number
-): Promise<MetaCatalogItem[]> {
-  const items = await getMetaCatalog();
+): Promise<MetaCatalogItem[]> {  const items = await getMetaCatalog();
   const retailerTerm = normalizeRetailerId(query);
   const exactRetailerTerm = normalizeExactRetailerId(query);
   const compactRetailerTerm = compactRetailerId(query);
@@ -326,4 +325,117 @@ export async function searchMetaCatalog(
   }
 
   return [...exact, ...byRetailer, ...byNamePrefix, ...byName].slice(0, limit);
+}
+
+export interface MetaCatalogCreateInput {
+  retailerId: string;
+  name: string;
+  description?: string | null;
+  price: number;
+  imageUrl: string;
+  url?: string | null;
+}
+
+export interface MetaCatalogCreateResult {
+  retailerId: string;
+  id: string | null;
+  created: true;
+}
+
+/**
+ * Publica un ítem plano en el catálogo de Meta. Usa `retailer_id` como clave
+ * estable: si Meta ya lo tiene, el llamador debe haberlo detectado antes con
+ * findMetaCatalogItem para no duplicar.
+ */
+export async function createMetaCatalogItem(
+  input: MetaCatalogCreateInput
+): Promise<MetaCatalogCreateResult> {
+  const { catalogId, token, version } = requireConfig();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const endpoint = `https://graph.facebook.com/${version}/${encodeURIComponent(
+    catalogId
+  )}/products`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        retailer_id: input.retailerId,
+        name: input.name,
+        ...(input.description ? { description: input.description } : {}),
+        price: `${input.price.toFixed(2)} USD`,
+        currency: 'USD',
+        availability: 'in stock',
+        condition: 'new',
+        image_url: input.imageUrl,
+        ...(input.url ? { url: input.url } : {}),
+      }),
+      signal: controller.signal,
+    });
+
+    const body = (await response.json().catch(() => null)) as unknown;
+
+    if (!response.ok) {
+      const metaMessage =
+        isRecord(body) && isRecord(body.error) && typeof body.error.message === 'string'
+          ? body.error.message
+          : null;
+      if (response.status === 401 || response.status === 403) {
+        throw new HttpError(
+          502,
+          'Meta rechazó el token o la integración no tiene permiso de escritura (catalog_management) sobre el catálogo.',
+          'META_WRITE_FORBIDDEN'
+        );
+      }
+      if (response.status === 429) {
+        throw new HttpError(
+          502,
+          'Meta limitó temporalmente la creación de ítems. Intenta de nuevo en unos minutos.',
+          'META_API_ERROR'
+        );
+      }
+      throw new HttpError(
+        502,
+        metaMessage
+          ? `Meta rechazó la publicación: ${metaMessage}`
+          : `Meta respondió con estado ${response.status} al publicar el producto.`,
+        'META_API_ERROR'
+      );
+    }
+
+    // La escritura invalida el catálogo cacheado para que el buscador y la
+    // bandeja de pendientes vean el nuevo ítem de inmediato.
+    cache = null;
+
+    return {
+      retailerId: input.retailerId,
+      id: isRecord(body) && typeof body.id === 'string' ? body.id : null,
+      created: true,
+    };
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new HttpError(
+        502,
+        'Tiempo de espera agotado publicando el producto en Meta.',
+        'META_API_ERROR'
+      );
+    }
+    logger.warn({ endpoint: 'meta.catalog.create' }, 'No se pudo conectar con Meta Graph API');
+    throw new HttpError(
+      502,
+      'No se pudo conectar con Meta para publicar el producto.',
+      'META_API_ERROR'
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
 }

@@ -1,0 +1,34 @@
+import { z } from 'zod';
+
+const optionalExternalUrl = z.string().trim().max(1000).nullable().optional();
+
+export const externalMetaPendingQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+  search: z.string().trim().max(120).optional(),
+});
+
+export const externalItemSchema = z.object({
+  source: z.enum(['meta', 'contifico']),
+  externalId: z.string().trim().min(1).max(150),
+  sku: z.string().trim().max(120).nullable().optional(),
+  name: z.string().trim().min(1).max(300),
+  baseName: z.string().trim().max(300).nullable().optional(),
+  color: z.string().trim().max(120).nullable().optional(),
+  price: z.number().min(0).max(1_000_000).nullable().optional(),
+  imageUrl: optionalExternalUrl,
+  url: optionalExternalUrl,
+  category: z.string().trim().max(200).nullable().optional(),
+  subcategory: z.string().trim().max(200).nullable().optional(),
+  stock: z.number().int().min(0).max(10_000_000).nullable().optional(),
+  barcode: z.string().trim().max(120).nullable().optional(),
+  metaRetailerId: z.string().trim().max(100).nullable().optional(),
+  contificoId: z.string().trim().max(100).nullable().optional(),
+  contificoSku: z.string().trim().max(120).nullable().optional(),
+});
+
+export const externalImportBodySchema = z.object({
+  items: z.array(externalItemSchema).min(1).max(100),
+});
+
+export type ExternalMetaPendingQuery = z.infer<typeof externalMetaPendingQuerySchema>;
+export type ExternalItemInput = z.infer<typeof externalItemSchema>;

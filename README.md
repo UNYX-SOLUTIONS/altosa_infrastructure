@@ -191,8 +191,13 @@ La ruta `/uploads` es pública para servir las imágenes de variantes.
     - `kommo_templates`, `products.kommo_template_id` y `product_variants.kommo_template_id` con `scripts/apply-kommo-migration.sh`.
     - `product_variants.meta_retailer_id` y `product_variants.meta_mapping_locked` con `scripts/apply-meta-retailer-migration.sh`.
       - `meta_retailer_id` es único (índice funcional case-insensitive); el script detecta duplicados y falla antes de crear el índice.
+    - `product_variants.contifico_id` y `product_variants.contifico_sku` con `scripts/apply-contifico-migration.sh`.
+      - `contifico_id` es único (índice funcional case-insensitive); el script detecta duplicados y falla antes de crear el índice.
 - Plantillas de Kommo: `GET /api/v1/kommo/templates?search=` y `POST /api/v1/kommo/sync-templates`. Configura `KOMMO_API_URL` y `KOMMO_API_KEY` en `.env`.
 - Catálogo Meta (selector de mapeo): `GET /api/v1/meta/catalog/search?q=&limit=` y `GET /api/v1/meta/catalog/item?retailerId=`. Configura `META_CATALOG_ID`, `META_ACCESS_TOKEN` y, opcionalmente, `META_API_VERSION` en `.env`.
+  - Creación plana desde el ERP: el alta con `syncExternals=true` publica la variante con `POST /{catalog_id}/products` y guarda el `meta_retailer_id` con `meta_mapping_locked=true`. Requiere permiso `catalog_management`; si Meta falla, el producto se crea igual en Altosa y la variante queda pendiente de mapeo manual (se registra una advertencia, no se bloquea el alta).
+- Referencias planas de Contifico: `product_variants.contifico_id` y `contifico_sku`. El ERP conserva su cliente/token actual y Altosa solo persiste/valida el mapeo (no llama a Contifico).
+- Ingesta inversa: `GET /api/v1/external/meta/pending?limit=&search=`, `GET /api/v1/external/links` y `POST /api/v1/external/import`. El ERP combina los pendientes de Meta y Contifico; la importación crea el producto padre agrupado por nombre base, una variante por ítem, con `is_active=false`, y guarda ambos IDs externos cuando el mismo ítem existe en las dos fuentes.
 
 ## Kommo (plantillas de chat)
 
@@ -382,6 +387,7 @@ Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper del ERP se e
 bash scripts/healthcheck.sh
 # Debe mostrar OK de /health, /api/v1/products con withVariants,
 # product_variants.meta_retailer_id + meta_mapping_locked + su índice,
+# product_variants.contifico_id + contifico_sku + su índice,
 # kommo_templates y /api/v1/meta/catalog/search (si Meta está configurado).
 ```
 

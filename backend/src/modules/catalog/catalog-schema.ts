@@ -75,6 +75,8 @@ export const variantBodySchema = z.object({
   kommoTemplateId: z.string().trim().min(1).max(80).nullable().optional(),
   metaRetailerId: z.string().trim().max(100).nullable().optional(),
   metaMappingLocked: z.boolean().optional(),
+  contificoId: z.string().trim().max(100).nullable().optional(),
+  contificoSku: z.string().trim().max(120).nullable().optional(),
 });
 
 export const updateVariantBodySchema = variantBodySchema.partial().extend({
@@ -102,13 +104,15 @@ export const updateProductBodySchema = z.object({
 });
 
 export const syncVariantBodySchema = z.object({
-  sku: z.string().trim().min(1).max(80),
+  sku: z.string().trim().min(1).max(120),
   color: z.string().trim().max(80).nullable().optional(),
   descripcion: z.string().trim().max(2000).nullable().optional(),
   precioUsd: z.number().min(0).max(1_000_000).nullable().optional(),
   imagenUrl: optionalUrl.nullable().optional(),
   especificaciones: z.record(z.unknown()).nullable().optional(),
   isActive: z.boolean().optional(),
+  contificoId: z.string().trim().max(100).nullable().optional(),
+  contificoSku: z.string().trim().max(120).nullable().optional(),
 });
 
 export const syncProductBodySchema = z.object({
@@ -126,6 +130,9 @@ export const syncProductBodySchema = z.object({
 export const syncProductsBodySchema = z.object({
   items: z.array(syncProductBodySchema).min(1).max(100),
   matchByName: z.boolean().optional().default(false),
+  // Solo el alta desde el ERP lo activa: intenta publicar las variantes nuevas
+  // en Meta. El sync masivo de Contifico nunca debe crear ítems externos.
+  syncExternals: z.boolean().optional().default(false),
 });
 
 export const syncDeactivateBodySchema = z.object({
