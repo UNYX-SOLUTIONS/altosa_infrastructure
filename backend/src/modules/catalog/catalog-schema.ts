@@ -59,7 +59,13 @@ export const warrantyCreateBodySchema = z.object({
   isActive: z.boolean().optional().default(true),
 });
 
-export const warrantyUpdateBodySchema = warrantyCreateBodySchema.partial();
+export const warrantyUpdateBodySchema = z.object({
+  meses: z.number().int().min(0).max(1200).nullable().optional(),
+  especial: z.string().trim().max(2000).nullable().optional(),
+  observaciones: z.string().trim().max(4000).nullable().optional(),
+  fuenteUrl: optionalUrl.nullable().optional(),
+  isActive: z.boolean().optional(),
+});
 
 export const warrantyIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
@@ -90,7 +96,7 @@ export const variantBodySchema = z.object({
   alturaAsientoCm: z.string().trim().max(50).optional(),
   anchoAsientoCm: z.coerce.number().min(0).max(100000).optional(),
   pesoKg: z.coerce.number().min(0).max(100000).optional(),
-  garantiaId: z.coerce.number().int().positive().optional(),
+  garantiaId: z.coerce.number().int().positive().nullable().optional(),
   catalogoId: z.coerce.number().int().positive().optional(),
   estadoId: z.coerce.number().int().positive().max(32767).optional(),
   kommoTemplateId: z.string().trim().min(1).max(80).nullable().optional(),

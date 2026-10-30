@@ -748,7 +748,7 @@ async function validateVariantReferences(input: VariantBody | UpdateVariantBody)
   if (input.estadoId !== undefined) {
     await ensureEstadoExists(input.estadoId);
   }
-  if (input.garantiaId !== undefined) {
+  if (input.garantiaId !== undefined && input.garantiaId !== null) {
     await ensureGarantiaExists(input.garantiaId);
   }
   if (input.catalogoId !== undefined) {
