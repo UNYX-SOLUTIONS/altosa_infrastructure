@@ -2,14 +2,28 @@ import type { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import { sendSuccess } from '../../utils/api-response';
 import {
+  externalHealthQuerySchema,
   externalImportBodySchema,
   externalMetaPendingQuerySchema,
   externalPendingQuerySchema,
+  externalRepairBodySchema,
+  type ExternalHealthQuery,
   type ExternalItemInput,
   type ExternalMetaPendingQuery,
   type ExternalPendingQuery,
+  type ExternalRepairBody,
 } from './external-schema';
 import * as externalService from './external-service';
+
+export async function getHealth(req: Request, res: Response): Promise<void> {
+  const query = externalHealthQuerySchema.parse(req.query) as ExternalHealthQuery;
+  sendSuccess(res, await externalService.getExternalHealth(query));
+}
+
+export async function repair(req: Request, res: Response): Promise<void> {
+  const body = externalRepairBodySchema.parse(req.body) as ExternalRepairBody;
+  sendSuccess(res, await externalService.repairExternalMapping(body));
+}
 
 export async function listPending(req: Request, res: Response): Promise<void> {
   const query = externalPendingQuerySchema.parse(req.query) as ExternalPendingQuery;

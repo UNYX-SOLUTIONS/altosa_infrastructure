@@ -1,4 +1,5 @@
 import { getPrisma } from '../../config/prisma';
+import { logger } from '../../config/logger';
 import { HttpError } from '../../utils/api-response';
 import { buildFlatName } from '../../utils/product-naming';
 import {
@@ -334,6 +335,14 @@ export async function updateVariantInMeta(
         },
       });
     }
+    logger.info(
+      {
+        variantId: variant.idVariante,
+        retailerId: published.retailerId,
+        created: published.created,
+      },
+      'El ítem de Meta faltaba; se volvió a publicar'
+    );
     return { retailerId: published.retailerId, updated: false, created: published.created };
   }
 
@@ -355,6 +364,95 @@ export async function updateVariantInMeta(
   });
 
   return { retailerId, updated: true, created: false };
+}
+
+/**
+ * Fuerza la verificación y republicación de una variante mapeada en Meta.
+ * Se usa desde la bandeja de salud cuando el ítem fue eliminado en Meta.
+ */
+export async function republishVariantInMeta(variantId: number): Promise<{
+  retailerId: string;
+  created: boolean;
+  updated: boolean;
+}> {
+  if (!isMetaConfigured()) {
+    throw new HttpError(
+      503,
+      'El catálogo de Meta no está configurado.',
+      'META_NOT_CONFIGURED'
+    );
+  }
+
+  const variant = await getVariantForMeta(variantId);
+  if (!variant.isActive) {
+    throw new HttpError(
+      422,
+      'La variante debe estar activa para publicarse en Meta.',
+      'META_VARIANT_INACTIVE'
+    );
+  }
+  if (!variant.sku?.trim()) {
+    throw new HttpError(
+      422,
+      'La variante necesita SKU para publicarse en Meta.',
+      'META_SKU_REQUIRED'
+    );
+  }
+
+  const snapshot = snapshotFromVariant(variant);
+  const retailerId = variant.metaRetailerId?.trim() || variant.sku.trim();
+  const existing = await findMetaCatalogItem(retailerId);
+
+  if (existing) {
+    if (variant.metaRetailerId !== existing.retailerId) {
+      await getPrisma().productoVariante.update({
+        where: { idVariante: variant.idVariante },
+        data: {
+          metaRetailerId: existing.retailerId,
+          metaMappingLocked: true,
+        },
+      });
+    }
+    if (existing.id) {
+      await updateMetaCatalogItem(existing.id, {
+        name: buildFlatName(snapshot.productName, snapshot.color),
+        description: snapshot.description ?? undefined,
+        price: snapshot.price,
+        imageUrl: snapshot.imageUrl ?? existing.imageUrl,
+        url: snapshot.url ?? existing.url,
+        availability: 'in stock',
+      });
+    }
+    return { retailerId: existing.retailerId, created: false, updated: true };
+  }
+
+  const published = await publishVariantToMeta({
+    retailerId,
+    name: buildFlatName(snapshot.productName, snapshot.color),
+    description: snapshot.description,
+    price: snapshot.price,
+    imageUrl: snapshot.imageUrl,
+    url: snapshot.url,
+  });
+
+  await getPrisma().productoVariante.update({
+    where: { idVariante: variant.idVariante },
+    data: {
+      metaRetailerId: published.retailerId,
+      metaMappingLocked: true,
+    },
+  });
+
+  logger.info(
+    { variantId: variant.idVariante, retailerId: published.retailerId },
+    'Variante republicada en Meta'
+  );
+
+  return {
+    retailerId: published.retailerId,
+    created: published.created,
+    updated: false,
+  };
 }
 
 /**

@@ -202,6 +202,7 @@ La ruta `/uploads` es pública para servir las imágenes de variantes.
   - El ERP ya no tiene `CONTIFICO_API_KEY`: solo llama a Altosa. Las rutas `/api/v1/integrations/contifico/*` del ERP son un proxy de compatibilidad.
 - Referencias planas de Contifico: `product_variants.contifico_id` y `contifico_sku`, únicas por variante. Altosa crea/actualiza/desactiva el producto plano en Contifico en el alta/edición/borrado desde el ERP (`writeThroughContifico`).
 - Ingesta inversa: `GET /api/v1/external/pending?limit=&search=&source=`, `GET /api/v1/external/links` y `POST /api/v1/external/import`. La bandeja combina Meta + Contifico dentro de Altosa; la importación crea el producto padre agrupado por nombre base, una variante por ítem, con `is_active=false`, y guarda ambos IDs externos cuando el mismo ítem existe en las dos fuentes.
+- Salud de mapeos: `GET /api/v1/external/health?refresh=true` detecta variantes `missing`/`inactive`/`mismatch` en Meta o Contifico sin modificar datos. `POST /api/v1/external/repair` repara una incidencia (`republish` en Meta; `recreate`/`reactivate`/`unmap` en Contifico; `unmap` en Meta). El ERP muestra el badge “Salud de mapeos” y las acciones.
 
 ## Kommo (plantillas de chat)
 
@@ -359,6 +360,9 @@ Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper de Contifico
 # No desactiva: la desactivación se hace desde el ERP y se propaga vía Altosa.
 0 4 * * 0 flock -n /tmp/altosa-prune.lock bash -lc 'cd /docker/altosa_infrastructure && bash scripts/contifico-sync.sh --dry-run --prune' >> /var/log/altosa-contifico-prune.log 2>&1
 
+# Salud de mapeos Meta/Contifico contra Altosa. Exit 2 si hay incidencias.
+0 6 * * * flock -n /tmp/altosa-health.lock bash -lc 'cd /docker/altosa_infrastructure && bash scripts/external-health.sh' >> /var/log/altosa-external-health.log 2>&1
+
 # Meta -> Altosa una vez al día. El token se lee del entorno del host y se pasa
 # por nombre a docker exec (no aparece en la línea de comandos).
 # Requiere META_CATALOG_ID y META_ACCESS_TOKEN en /docker/altosa_infrastructure/.env (chmod 600).
@@ -371,6 +375,7 @@ Los scripts de Altosa se ejecutan dentro del contenedor; el wrapper de Contifico
   `docker cp data/meta-retailer-ids.csv altosa-api:/tmp/ && docker exec altosa-api node dist/scripts/backfill-meta-retailer-ids.js /tmp/meta-retailer-ids.csv --dry-run`
 - Los scripts son idempotentes; si un cron se solapa, `flock` evita la doble ejecución.
 - Si `scripts/contifico-sync.sh` termina con código distinto de 0, revisa el JSON de respuesta y el log de `altosa-api`; el sync es idempotente y se puede reintentar.
+- `scripts/external-health.sh` devuelve JSON y sale con código `2` si hay incidencias o alguna fuente no se pudo validar; úsalo como alerta del cron sin modificar datos. Si defines `ALERT_WEBHOOK_URL` en `.env`, envía el resumen al webhook en cada corrida con incidencias.
 - Alertar si: falla el cron, `failed > 0`, aparecen SKUs sin mapeo nuevos, o Meta responde `131009`.
 
 ### Checklist de seguridad para producción

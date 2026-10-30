@@ -661,6 +661,13 @@ function normalizeContificoId(value: string | null | undefined): string | null {
   return normalized ? normalized : null;
 }
 
+function isContificoMissing(error: unknown): boolean {
+  return (
+    error instanceof HttpError &&
+    (error.statusCode === 404 || error.code === 'CONTIFICO_PRODUCT_NOT_FOUND')
+  );
+}
+
 async function ensureMetaRetailerIdAvailable(
   metaRetailerId: string | null | undefined,
   excludeVariantId?: number
@@ -1013,18 +1020,28 @@ export async function updateProduct(
       if (!variant.contificoId) {
         continue;
       }
-      await updateContificoProductForVariant(variant.contificoId, {
-        productName: input.nombre ?? existing.producto,
-        sku: variant.sku,
-        color: variant.color,
-        description:
-          input.descripcion !== undefined
-            ? input.descripcion
-            : variant.descripcion,
-        price: variant.precioUsd === null ? null : Number(variant.precioUsd),
-        isActive: input.isActive ?? variant.isActive,
-        categoryName,
-      });
+      try {
+        await updateContificoProductForVariant(variant.contificoId, {
+          productName: input.nombre ?? existing.producto,
+          sku: variant.sku,
+          color: variant.color,
+          description:
+            input.descripcion !== undefined
+              ? input.descripcion
+              : variant.descripcion,
+          price: variant.precioUsd === null ? null : Number(variant.precioUsd),
+          isActive: input.isActive ?? variant.isActive,
+          categoryName,
+        });
+      } catch (error) {
+        if (!isContificoMissing(error)) {
+          throw error;
+        }
+        logger.warn(
+          { err: error, variantId: variant.idVariante, contificoId: variant.contificoId },
+          'Contifico ya no tiene el producto; se conserva el mapeo y la salud lo reportará'
+        );
+      }
     }
 
     for (const variant of existing.variants) {
@@ -1208,23 +1225,33 @@ export async function updateVariant(
       input.precioUsd !== undefined ||
       input.isActive !== undefined)
   ) {
-    await updateContificoProductForVariant(existing.contificoId, {
-      productName: existing.producto.producto,
-      sku: existing.sku,
-      color: input.color ?? existing.color,
-      description:
-        input.descripcion !== undefined
-          ? input.descripcion
-          : existing.descripcion,
-      price:
-        input.precioUsd !== undefined
-          ? input.precioUsd
-          : existing.precioUsd === null
-            ? null
-            : Number(existing.precioUsd),
-      isActive: input.isActive ?? existing.isActive,
-      categoryName: existing.producto.subcategoria?.categoria?.nombre ?? null,
-    });
+    try {
+      await updateContificoProductForVariant(existing.contificoId, {
+        productName: existing.producto.producto,
+        sku: existing.sku,
+        color: input.color ?? existing.color,
+        description:
+          input.descripcion !== undefined
+            ? input.descripcion
+            : existing.descripcion,
+        price:
+          input.precioUsd !== undefined
+            ? input.precioUsd
+            : existing.precioUsd === null
+              ? null
+              : Number(existing.precioUsd),
+        isActive: input.isActive ?? existing.isActive,
+        categoryName: existing.producto.subcategoria?.categoria?.nombre ?? null,
+      });
+    } catch (error) {
+      if (!isContificoMissing(error)) {
+        throw error;
+      }
+      logger.warn(
+        { err: error, variantId: existing.idVariante, contificoId: existing.contificoId },
+        'Contifico ya no tiene el producto; se conserva el mapeo y la salud lo reportará'
+      );
+    }
   }
 
   if (

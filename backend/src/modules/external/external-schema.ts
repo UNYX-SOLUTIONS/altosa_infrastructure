@@ -36,6 +36,21 @@ export const externalImportBodySchema = z.object({
   items: z.array(externalItemSchema).min(1).max(100),
 });
 
+export const externalHealthQuerySchema = z.object({
+  refresh: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+});
+
+export const externalRepairBodySchema = z.object({
+  variantId: z.coerce.number().int().positive(),
+  source: z.enum(['meta', 'contifico']),
+  action: z.enum(['republish', 'recreate', 'reactivate', 'unmap']),
+});
+
 export type ExternalMetaPendingQuery = z.infer<typeof externalMetaPendingQuerySchema>;
 export type ExternalPendingQuery = z.infer<typeof externalPendingQuerySchema>;
 export type ExternalItemInput = z.infer<typeof externalItemSchema>;
+export type ExternalHealthQuery = z.infer<typeof externalHealthQuerySchema>;
+export type ExternalRepairBody = z.infer<typeof externalRepairBodySchema>;

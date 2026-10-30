@@ -3,21 +3,35 @@ import { getPrisma } from '../../config/prisma';
 import { logger } from '../../config/logger';
 import { HttpError } from '../../utils/api-response';
 import {
+  buildFlatName,
   inferBaseName,
   inferVariantColor,
 } from '../../utils/product-naming';
 import { resolveSyncEstados } from '../catalog/catalog-estados';
 import {
+  createContificoProduct,
   fetchAllContificoProducts,
   fetchContificoCategories,
+  searchContificoProducts,
+  updateContificoProduct,
 } from '../contifico/contifico-catalog';
-import { mapContificoProduct } from '../contifico/contifico-mappers';
-import { listPendingMetaItems } from '../meta/meta-service';
+import {
+  mapContificoProduct,
+  resolveContificoSku,
+} from '../contifico/contifico-mappers';
+import { getMetaCatalog, type MetaCatalogItem } from '../meta/meta-client';
+import {
+  listPendingMetaItems,
+  republishVariantInMeta,
+} from '../meta/meta-service';
 import type {
+  ExternalHealthQuery,
   ExternalItemInput,
   ExternalMetaPendingQuery,
   ExternalPendingQuery,
+  ExternalRepairBody,
 } from './external-schema';
+import type { ContificoProductDto } from '../contifico/contifico-types';
 
 function normalize(value: string | null | undefined): string {
   return (value ?? '').trim().toLowerCase();
@@ -489,4 +503,343 @@ export async function listExternalLinks() {
   });
 
   return { items: variants };
+}
+
+export type ExternalHealthStatus =
+  | 'ok'
+  | 'inactive'
+  | 'missing'
+  | 'mismatch'
+  | 'unmapped'
+  | 'unknown';
+
+export interface ExternalHealthItem {
+  variantId: number;
+  productId: number;
+  productName: string;
+  variantName: string | null;
+  sku: string | null;
+  contifico: ExternalHealthStatus;
+  meta: ExternalHealthStatus;
+  contificoId: string | null;
+  metaRetailerId: string | null;
+}
+
+export interface ExternalHealthResult {
+  checkedAt: string;
+  counts: {
+    contificoMissing: number;
+    contificoInactive: number;
+    contificoMismatch: number;
+    metaMissing: number;
+    totalIssues: number;
+    warnings: number;
+  };
+  items: ExternalHealthItem[];
+  warnings: string[];
+}
+
+const HEALTH_CACHE_TTL_MS = 2 * 60 * 1000;
+let healthCache: { expiresAt: number; data: ExternalHealthResult } | null = null;
+
+function clearHealthCache(): void {
+  healthCache = null;
+}
+
+/**
+ * Verifica que las variantes mapeadas sigan existiendo en Meta/Contifico.
+ * No escribe nada: devuelve incidencias y advertencias para que el ERP
+ * muestre el warning y ofrezca reparación.
+ */
+export async function getExternalHealth(
+  query: ExternalHealthQuery
+): Promise<ExternalHealthResult> {
+  if (!query.refresh && healthCache && healthCache.expiresAt > Date.now()) {
+    return healthCache.data;
+  }
+
+  const prisma = getPrisma();
+  const variants = await prisma.productoVariante.findMany({
+    where: {
+      isActive: true,
+      OR: [{ contificoId: { not: null } }, { metaRetailerId: { not: null } }],
+    },
+    select: {
+      idVariante: true,
+      idProducto: true,
+      sku: true,
+      color: true,
+      contificoId: true,
+      contificoSku: true,
+      metaRetailerId: true,
+      producto: { select: { producto: true } },
+    },
+    orderBy: { idVariante: 'asc' },
+  });
+
+  const warnings: string[] = [];
+  let contificoProducts: ContificoProductDto[] | null = null;
+  let metaCatalog: MetaCatalogItem[] | null = null;
+
+  try {
+    contificoProducts = await fetchAllContificoProducts();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error desconocido';
+    warnings.push(`No se pudo validar Contifico: ${message}`);
+    logger.warn({ err: error }, 'Health de mapeos: falló la lectura de Contifico');
+  }
+
+  try {
+    metaCatalog = await getMetaCatalog();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error desconocido';
+    warnings.push(`No se pudo validar Meta: ${message}`);
+    logger.warn({ err: error }, 'Health de mapeos: falló la lectura de Meta');
+  }
+
+  const contificoById = new Map<string, ContificoProductDto>();
+  const contificoByCode = new Map<string, ContificoProductDto>();
+  for (const product of contificoProducts ?? []) {
+    contificoById.set(normalize(product.id), product);
+    contificoByCode.set(normalize(resolveContificoSku(product)), product);
+  }
+
+  const metaRetailerIds = new Set(
+    (metaCatalog ?? []).map((item) => normalize(item.retailerId))
+  );
+
+  const items: ExternalHealthItem[] = [];
+
+  for (const variant of variants) {
+    let contifico: ExternalHealthStatus = 'unmapped';
+    if (variant.contificoId) {
+      if (!contificoProducts) {
+        contifico = 'unknown';
+      } else {
+        const byId = contificoById.get(normalize(variant.contificoId));
+        if (byId) {
+          contifico = normalize(byId.estado) === 'i' ? 'inactive' : 'ok';
+        } else {
+          const byCode = contificoByCode.get(
+            normalize(variant.contificoSku ?? variant.sku)
+          );
+          contifico = byCode ? 'mismatch' : 'missing';
+        }
+      }
+    }
+
+    let meta: ExternalHealthStatus = 'unmapped';
+    if (variant.metaRetailerId) {
+      if (!metaCatalog) {
+        meta = 'unknown';
+      } else {
+        meta = metaRetailerIds.has(normalize(variant.metaRetailerId))
+          ? 'ok'
+          : 'missing';
+      }
+    }
+
+    const hasIssue =
+      contifico === 'missing' ||
+      contifico === 'inactive' ||
+      contifico === 'mismatch' ||
+      meta === 'missing';
+
+    if (!hasIssue) {
+      continue;
+    }
+
+    items.push({
+      variantId: variant.idVariante,
+      productId: variant.idProducto,
+      productName: variant.producto.producto,
+      variantName: variant.color,
+      sku: variant.sku,
+      contifico,
+      meta,
+      contificoId: variant.contificoId,
+      metaRetailerId: variant.metaRetailerId,
+    });
+  }
+
+  const data: ExternalHealthResult = {
+    checkedAt: new Date().toISOString(),
+    counts: {
+      contificoMissing: items.filter((item) => item.contifico === 'missing').length,
+      contificoInactive: items.filter((item) => item.contifico === 'inactive').length,
+      contificoMismatch: items.filter((item) => item.contifico === 'mismatch').length,
+      metaMissing: items.filter((item) => item.meta === 'missing').length,
+      totalIssues: items.length,
+      warnings: warnings.length,
+    },
+    items,
+    warnings,
+  };
+
+  healthCache = { expiresAt: Date.now() + HEALTH_CACHE_TTL_MS, data };
+  return data;
+}
+
+/**
+ * Repara una incidencia de mapeo desde la bandeja de salud.
+ * - Meta: republish | unmap
+ * - Contifico: recreate | reactivate | unmap
+ */
+export async function repairExternalMapping(
+  input: ExternalRepairBody
+): Promise<Record<string, unknown>> {
+  const prisma = getPrisma();
+  const variant = await prisma.productoVariante.findUnique({
+    where: { idVariante: input.variantId },
+    select: {
+      idVariante: true,
+      idProducto: true,
+      sku: true,
+      color: true,
+      descripcion: true,
+      precioUsd: true,
+      imagenUrl: true,
+      urlProducto: true,
+      isActive: true,
+      contificoId: true,
+      contificoSku: true,
+      metaRetailerId: true,
+      producto: {
+        select: {
+          producto: true,
+          subcategoria: {
+            select: { categoria: { select: { nombre: true } } },
+          },
+        },
+      },
+    },
+  });
+  if (!variant) {
+    throw new HttpError(404, 'Variante no encontrada.', 'ALTOSA_VARIANT_NOT_FOUND');
+  }
+
+  if (input.source === 'meta') {
+    if (input.action === 'unmap') {
+      await prisma.productoVariante.update({
+        where: { idVariante: variant.idVariante },
+        data: { metaRetailerId: null, metaMappingLocked: false },
+      });
+      clearHealthCache();
+      return { variantId: variant.idVariante, source: 'meta', action: 'unmap' };
+    }
+    if (input.action !== 'republish') {
+      throw new HttpError(
+        422,
+        'La acción indicada no aplica a Meta.',
+        'EXTERNAL_REPAIR_ACTION_INVALID'
+      );
+    }
+    const result = await republishVariantInMeta(variant.idVariante);
+    clearHealthCache();
+    return {
+      variantId: variant.idVariante,
+      source: 'meta',
+      action: 'republish',
+      ...result,
+    };
+  }
+
+  if (input.action === 'unmap') {
+    await prisma.productoVariante.update({
+      where: { idVariante: variant.idVariante },
+      data: { contificoId: null, contificoSku: null },
+    });
+    clearHealthCache();
+    return {
+      variantId: variant.idVariante,
+      source: 'contifico',
+      action: 'unmap',
+    };
+  }
+
+  if (input.action === 'reactivate') {
+    if (!variant.contificoId) {
+      throw new HttpError(
+        422,
+        'La variante no tiene un producto de Contifico mapeado.',
+        'CONTIFICO_NOT_MAPPED'
+      );
+    }
+    await updateContificoProduct(variant.contificoId, { estado: 'A' });
+    clearHealthCache();
+    return {
+      variantId: variant.idVariante,
+      source: 'contifico',
+      action: 'reactivate',
+      contificoId: variant.contificoId,
+    };
+  }
+
+  if (input.action !== 'recreate') {
+    throw new HttpError(
+      422,
+      'La acción indicada no aplica a Contifico.',
+      'EXTERNAL_REPAIR_ACTION_INVALID'
+    );
+  }
+
+  if (!variant.isActive) {
+    throw new HttpError(
+      422,
+      'La variante debe estar activa para recrearse en Contifico.',
+      'CONTIFICO_VARIANT_INACTIVE'
+    );
+  }
+  const sku = variant.sku?.trim();
+  if (!sku) {
+    throw new HttpError(
+      422,
+      'La variante necesita SKU para recrearse en Contifico.',
+      'CONTIFICO_SKU_REQUIRED'
+    );
+  }
+
+  const matches = await searchContificoProducts(sku, 10);
+  const existing = matches.find(
+    (product) => normalize(resolveContificoSku(product)) === normalize(sku)
+  );
+
+  let contificoId: string;
+  let contificoSku: string;
+  let created = false;
+
+  if (existing) {
+    contificoId = existing.id;
+    contificoSku = resolveContificoSku(existing);
+  } else {
+    const product = await createContificoProduct({
+      codigo: sku,
+      nombre: buildFlatName(variant.producto.producto, variant.color),
+      descripcion: variant.descripcion ?? undefined,
+      categoriaNombre:
+        variant.producto.subcategoria?.categoria?.nombre ?? 'General',
+      pvp1: variant.precioUsd === null ? 0 : Number(variant.precioUsd),
+      pvpManual:
+        variant.precioUsd === null || Number(variant.precioUsd) <= 0,
+      estado: 'A',
+    });
+    contificoId = product.id;
+    contificoSku = resolveContificoSku(product);
+    created = true;
+  }
+
+  await prisma.productoVariante.update({
+    where: { idVariante: variant.idVariante },
+    data: { contificoId, contificoSku },
+  });
+  clearHealthCache();
+
+  return {
+    variantId: variant.idVariante,
+    source: 'contifico',
+    action: 'recreate',
+    contificoId,
+    contificoSku,
+    created,
+  };
 }

@@ -88,17 +88,49 @@ async function fetchProductPages(estado?: 'A' | 'I'): Promise<ContificoProductDt
   return mergePages(pages);
 }
 
+let allProductsCache: {
+  expiresAt: number;
+  promise: Promise<ContificoProductDto[]>;
+} | null = null;
+
+const ALL_PRODUCTS_CACHE_TTL_MS = 30_000;
+
+export function invalidateContificoProductsCache(): void {
+  allProductsCache = null;
+}
+
 /**
  * Obtiene el catálogo completo de Contifico. Se consultan ambos estados
  * (A/I) para que una desactivación en Contifico también se propague.
  * El dedupe por `id` tolera APIs que ignoran el parámetro `page`.
+ *
+ * Cache corto en memoria: health, pendientes y sync comparten la misma
+ * descarga; tras crear/editar/desactivar se invalida.
  */
 export async function fetchAllContificoProducts(): Promise<ContificoProductDto[]> {
-  const [active, inactive] = await Promise.all([
-    fetchProductPages('A'),
-    fetchProductPages('I'),
-  ]);
-  return mergePages([active, inactive]);
+  if (allProductsCache && allProductsCache.expiresAt > Date.now()) {
+    return allProductsCache.promise;
+  }
+
+  const promise = (async () => {
+    const [active, inactive] = await Promise.all([
+      fetchProductPages('A'),
+      fetchProductPages('I'),
+    ]);
+    return mergePages([active, inactive]);
+  })();
+
+  allProductsCache = {
+    expiresAt: Date.now() + ALL_PRODUCTS_CACHE_TTL_MS,
+    promise,
+  };
+
+  try {
+    return await promise;
+  } catch (error) {
+    allProductsCache = null;
+    throw error;
+  }
 }
 
 export async function fetchContificoProductById(id: string): Promise<ContificoProductDto> {
@@ -244,6 +276,7 @@ export async function createContificoProduct(
     '/producto/',
     buildProductBody(input, categoryId)
   );
+  invalidateContificoProductsCache();
 
   if (created && typeof created.id === 'string') {
     return created;
@@ -364,6 +397,7 @@ export async function updateContificoProduct(
   if (categoryId) body.categoria_id = categoryId;
 
   const updated = await contificoPatch<ContificoProductDto>(productItemPath(id), body);
+  invalidateContificoProductsCache();
   if (updated && typeof updated.id === 'string') {
     return updated;
   }

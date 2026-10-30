@@ -86,6 +86,13 @@ export async function contificoRequest<T>(
     const body = (await response.json().catch(() => null)) as unknown;
 
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new HttpError(
+          404,
+          extractErrorMessage(body) ?? 'Producto no encontrado en Contifico.',
+          'CONTIFICO_PRODUCT_NOT_FOUND'
+        );
+      }
       throw new HttpError(
         502,
         extractErrorMessage(body) ??

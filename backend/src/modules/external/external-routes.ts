@@ -5,6 +5,8 @@ import * as externalController from './external-controller';
 export const externalRouter = Router();
 
 externalRouter.get('/pending', asyncHandler(externalController.listPending));
+externalRouter.get('/health', asyncHandler(externalController.getHealth));
+externalRouter.post('/repair', asyncHandler(externalController.repair));
 externalRouter.get('/meta/pending', asyncHandler(externalController.listMetaPending));
 externalRouter.get('/links', asyncHandler(externalController.listLinks));
 externalRouter.post('/import', asyncHandler(externalController.importItems));
