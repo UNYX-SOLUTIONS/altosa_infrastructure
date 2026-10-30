@@ -21,4 +21,7 @@ catalogRouter.get('/categories', asyncHandler(catalogController.listCategories))
 catalogRouter.get('/catalogs', asyncHandler(catalogController.listCatalogs));
 catalogRouter.get('/locations', asyncHandler(catalogController.listLocations));
 catalogRouter.get('/warranties', asyncHandler(catalogController.listWarranties));
+catalogRouter.post('/warranties', asyncHandler(catalogController.createWarranty));
+catalogRouter.patch('/warranties/:id', asyncHandler(catalogController.updateWarranty));
+catalogRouter.delete('/warranties/:id', asyncHandler(catalogController.deleteWarranty));
 catalogRouter.get('/documents', asyncHandler(catalogController.listDocuments));

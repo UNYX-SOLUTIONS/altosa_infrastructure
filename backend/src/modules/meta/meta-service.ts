@@ -1,11 +1,14 @@
 import { getPrisma } from '../../config/prisma';
 import { HttpError } from '../../utils/api-response';
+import { buildFlatName } from '../../utils/product-naming';
 import {
   createMetaCatalogItem,
+  deleteMetaCatalogItem,
   findMetaCatalogItem,
   getMetaCatalog,
   isMetaConfigured,
   searchMetaCatalog,
+  updateMetaCatalogItem,
   type MetaCatalogItem,
 } from './meta-client';
 
@@ -126,8 +129,7 @@ export async function publishVariantToMeta(
 export async function listPendingMetaItems(
   limit: number,
   search?: string
-): Promise<{ items: MetaCatalogItem[]; total: number }> {
-  const [catalog, mappedVariants] = await Promise.all([
+): Promise<{ items: MetaCatalogItem[]; total: number }> {  const [catalog, mappedVariants] = await Promise.all([
     getMetaCatalog(),
     getPrisma().productoVariante.findMany({
       select: {
@@ -186,4 +188,230 @@ export async function listPendingMetaItems(
     items: pending.slice(0, limit),
     total: pending.length,
   };
+}
+
+export interface MetaVariantSnapshot {
+  productName: string;
+  color: string | null;
+  description: string | null;
+  price: number | null;
+  imageUrl: string | null;
+  url: string | null;
+  isActive: boolean;
+}
+
+async function getVariantForMeta(variantId: number) {
+  const variant = await getPrisma().productoVariante.findUnique({
+    where: { idVariante: variantId },
+    select: {
+      idVariante: true,
+      sku: true,
+      color: true,
+      descripcion: true,
+      precioUsd: true,
+      imagenUrl: true,
+      urlProducto: true,
+      isActive: true,
+      metaRetailerId: true,
+      producto: { select: { producto: true } },
+    },
+  });
+  if (!variant) {
+    throw new HttpError(404, 'Variante no encontrada.', 'ALTOSA_VARIANT_NOT_FOUND');
+  }
+  return variant;
+}
+
+function snapshotFromVariant(
+  variant: Awaited<ReturnType<typeof getVariantForMeta>>
+): MetaVariantSnapshot {
+  return {
+    productName: variant.producto.producto,
+    color: variant.color,
+    description: variant.descripcion,
+    price: variant.precioUsd === null ? null : Number(variant.precioUsd),
+    imageUrl: variant.imagenUrl,
+    url: variant.urlProducto,
+    isActive: variant.isActive,
+  };
+}
+
+/**
+ * Publica una variante de Altosa en Meta usando su SKU como retailer_id.
+ * Si ya tiene mapping, es idempotente y no crea otro ítem.
+ */
+export async function publishVariantById(variantId: number): Promise<{
+  retailerId: string;
+  created: boolean;
+} | null> {
+  if (!isMetaConfigured()) {
+    throw new HttpError(
+      503,
+      'El catálogo de Meta no está configurado.',
+      'META_NOT_CONFIGURED'
+    );
+  }
+
+  const variant = await getVariantForMeta(variantId);
+  if (variant.metaRetailerId) {
+    return { retailerId: variant.metaRetailerId, created: false };
+  }
+  if (!variant.isActive) {
+    return null;
+  }
+  if (!variant.sku?.trim()) {
+    throw new HttpError(
+      422,
+      'La variante necesita SKU para publicarse en Meta.',
+      'META_SKU_REQUIRED'
+    );
+  }
+
+  const snapshot = snapshotFromVariant(variant);
+  const published = await publishVariantToMeta({
+    retailerId: variant.sku.trim(),
+    name: buildFlatName(snapshot.productName, snapshot.color),
+    description: snapshot.description,
+    price: snapshot.price,
+    imageUrl: snapshot.imageUrl,
+    url: snapshot.url,
+  });
+
+  await getPrisma().productoVariante.update({
+    where: { idVariante: variant.idVariante },
+    data: {
+      metaRetailerId: published.retailerId,
+      metaMappingLocked: true,
+    },
+  });
+
+  return published;
+}
+
+/**
+ * Actualiza el ítem de Meta mapeado a una variante. Acepta overrides para
+ * reflejar el estado que se va a guardar antes de escribir en la DB.
+ * Si el ítem ya no existe y la variante sigue activa, lo vuelve a publicar.
+ */
+export async function updateVariantInMeta(
+  variantId: number,
+  override: Partial<MetaVariantSnapshot> = {}
+): Promise<{ retailerId: string; updated: boolean; created: boolean } | null> {
+  if (!isMetaConfigured()) {
+    return null;
+  }
+
+  const variant = await getVariantForMeta(variantId);
+  if (!variant.metaRetailerId) {
+    return null;
+  }
+
+  const snapshot: MetaVariantSnapshot = {
+    ...snapshotFromVariant(variant),
+    ...override,
+  };
+  const retailerId = variant.metaRetailerId;
+  const item = await findMetaCatalogItem(retailerId);
+
+  if (!item) {
+    if (!snapshot.isActive) {
+      return null;
+    }
+    const published = await publishVariantToMeta({
+      retailerId,
+      name: buildFlatName(snapshot.productName, snapshot.color),
+      description: snapshot.description,
+      price: snapshot.price,
+      imageUrl: snapshot.imageUrl,
+      url: snapshot.url,
+    });
+    if (published.retailerId !== retailerId) {
+      await getPrisma().productoVariante.update({
+        where: { idVariante: variant.idVariante },
+        data: {
+          metaRetailerId: published.retailerId,
+          metaMappingLocked: true,
+        },
+      });
+    }
+    return { retailerId: published.retailerId, updated: false, created: published.created };
+  }
+
+  if (!item.id) {
+    throw new HttpError(
+      502,
+      `Meta no devolvió el id interno del ítem ${retailerId}; no se puede actualizar.`,
+      'META_ITEM_ID_MISSING'
+    );
+  }
+
+  await updateMetaCatalogItem(item.id, {
+    name: buildFlatName(snapshot.productName, snapshot.color),
+    description: snapshot.description ?? undefined,
+    price: snapshot.price,
+    imageUrl: snapshot.imageUrl ?? item.imageUrl,
+    url: snapshot.url ?? item.url,
+    availability: snapshot.isActive ? 'in stock' : 'out of stock',
+  });
+
+  return { retailerId, updated: true, created: false };
+}
+
+/**
+ * Elimina el ítem de Meta mapeado a una variante. Si no está mapeado o ya no
+ * existe en Meta, no hace nada.
+ */
+export async function deleteVariantFromMeta(variantId: number): Promise<boolean> {
+  if (!isMetaConfigured()) {
+    return false;
+  }
+
+  const variant = await getVariantForMeta(variantId);
+  if (!variant.metaRetailerId) {
+    return false;
+  }
+
+  const item = await findMetaCatalogItem(variant.metaRetailerId);
+  if (item?.id) {
+    await deleteMetaCatalogItem(item.id);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Elimina en Meta todos los ítems asociados a las variantes de un producto.
+ * Se usa en el DELETE explícito del producto (no en el sync ni en el toggle
+ * de isActive, que solo actualiza availability).
+ */
+export async function deleteProductMetaItems(productId: number): Promise<number> {
+  if (!isMetaConfigured()) {
+    return 0;
+  }
+
+  const variants = await getPrisma().productoVariante.findMany({
+    where: { idProducto: productId, metaRetailerId: { not: null } },
+    select: { metaRetailerId: true },
+  });
+  if (variants.length === 0) {
+    return 0;
+  }
+
+  const catalog = await getMetaCatalog();
+  const byRetailer = new Map(
+    catalog.map((item) => [item.retailerId.trim().toLowerCase(), item])
+  );
+
+  let deleted = 0;
+  for (const variant of variants) {
+    if (!variant.metaRetailerId) {
+      continue;
+    }
+    const item = byRetailer.get(variant.metaRetailerId.trim().toLowerCase());
+    if (item?.id) {
+      await deleteMetaCatalogItem(item.id);
+      deleted += 1;
+    }
+  }
+  return deleted;
 }

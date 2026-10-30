@@ -44,6 +44,27 @@ export const simpleListQuerySchema = z.object({
 
 const optionalUrl = z.string().trim().url().max(500).optional().or(z.literal(''));
 
+export const warrantyListQuerySchema = z.object({
+  active: z
+    .enum(['all', 'true', 'false'])
+    .default('all')
+    .transform((value) => (value === 'all' ? undefined : value === 'true')),
+});
+
+export const warrantyCreateBodySchema = z.object({
+  meses: z.number().int().min(0).max(1200).nullable().optional(),
+  especial: z.string().trim().max(2000).nullable().optional(),
+  observaciones: z.string().trim().max(4000).nullable().optional(),
+  fuenteUrl: optionalUrl.nullable().optional(),
+  isActive: z.boolean().optional().default(true),
+});
+
+export const warrantyUpdateBodySchema = warrantyCreateBodySchema.partial();
+
+export const warrantyIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
 export const variantBodySchema = z.object({
   sku: z.string().trim().max(80).optional(),
   color: z.string().trim().max(80).optional(),
@@ -77,6 +98,7 @@ export const variantBodySchema = z.object({
   metaMappingLocked: z.boolean().optional(),
   contificoId: z.string().trim().max(100).nullable().optional(),
   contificoSku: z.string().trim().max(120).nullable().optional(),
+  writeThroughMeta: z.boolean().optional().default(false),
   writeThroughContifico: z.boolean().optional().default(false),
 });
 
@@ -92,6 +114,7 @@ export const createProductBodySchema = z.object({
   estadoId: z.coerce.number().int().positive().max(32767).optional().default(1),
   kommoTemplateId: z.string().trim().min(1).max(80).nullable().optional(),
   variantes: z.array(variantBodySchema).max(100).optional().default([]),
+  writeThroughMeta: z.boolean().optional().default(false),
   writeThroughContifico: z.boolean().optional().default(false),
 });
 
@@ -135,6 +158,7 @@ export const syncProductsBodySchema = z.object({
   // Solo el alta/edición desde el ERP lo activa: intenta publicar las
   // variantes nuevas en Meta y crear/actualizar su producto plano en Contifico.
   syncExternals: z.boolean().optional().default(false),
+  writeThroughMeta: z.boolean().optional().default(false),
   writeThroughContifico: z.boolean().optional().default(false),
 });
 
@@ -153,3 +177,6 @@ export type UpdateProductBody = z.infer<typeof updateProductBodySchema>;
 export type ProductsQuery = z.infer<typeof productsQuerySchema>;
 export type DocumentsQuery = z.infer<typeof documentsQuerySchema>;
 export type SimpleListQuery = z.infer<typeof simpleListQuerySchema>;
+export type WarrantyListQuery = z.infer<typeof warrantyListQuerySchema>;
+export type WarrantyCreateBody = z.infer<typeof warrantyCreateBodySchema>;
+export type WarrantyUpdateBody = z.infer<typeof warrantyUpdateBodySchema>;

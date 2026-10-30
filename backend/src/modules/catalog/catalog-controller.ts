@@ -13,6 +13,10 @@ import {
   updateProductBodySchema,
   updateVariantBodySchema,
   variantBodySchema,
+  warrantyCreateBodySchema,
+  warrantyIdParamSchema,
+  warrantyListQuerySchema,
+  warrantyUpdateBodySchema,
 } from './catalog-schema';
 import * as catalogService from './catalog-service';
 
@@ -52,9 +56,28 @@ export async function listLocations(req: Request, res: Response): Promise<void> 
 }
 
 export async function listWarranties(req: Request, res: Response): Promise<void> {
-  const query = simpleListQuerySchema.parse(req.query);
+  const query = warrantyListQuerySchema.parse(req.query);
   const garantias = await catalogService.listWarranties(query);
   sendSuccess(res, garantias);
+}
+
+export async function createWarranty(req: Request, res: Response): Promise<void> {
+  const input = warrantyCreateBodySchema.parse(req.body);
+  const garantia = await catalogService.createWarranty(input);
+  sendSuccess(res, garantia, undefined, StatusCodes.CREATED);
+}
+
+export async function updateWarranty(req: Request, res: Response): Promise<void> {
+  const { id } = warrantyIdParamSchema.parse(req.params);
+  const input = warrantyUpdateBodySchema.parse(req.body);
+  const garantia = await catalogService.updateWarranty(id, input);
+  sendSuccess(res, garantia);
+}
+
+export async function deleteWarranty(req: Request, res: Response): Promise<void> {
+  const { id } = warrantyIdParamSchema.parse(req.params);
+  const result = await catalogService.deleteWarranty(id);
+  sendSuccess(res, result);
 }
 
 export async function listDocuments(req: Request, res: Response): Promise<void> {
@@ -107,11 +130,17 @@ export async function deleteVariant(req: Request, res: Response): Promise<void> 
 }
 
 export async function syncProducts(req: Request, res: Response): Promise<void> {
-  const { items, matchByName, syncExternals, writeThroughContifico } =
-    syncProductsBodySchema.parse(req.body);
+  const {
+    items,
+    matchByName,
+    syncExternals,
+    writeThroughMeta,
+    writeThroughContifico,
+  } = syncProductsBodySchema.parse(req.body);
   const result = await catalogService.syncProducts(items, {
     matchByName,
     syncExternals,
+    writeThroughMeta,
     writeThroughContifico,
   });
   sendSuccess(res, result);

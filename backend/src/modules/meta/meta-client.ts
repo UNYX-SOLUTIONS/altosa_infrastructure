@@ -3,13 +3,14 @@ import { logger } from '../../config/logger';
 import { HttpError } from '../../utils/api-response';
 
 const META_FIELDS =
-  'retailer_id,name,availability,visibility,price,image_url,url,custom_label_0,custom_label_1';
+  'id,retailer_id,name,availability,visibility,price,image_url,url,custom_label_0,custom_label_1';
 const PAGE_LIMIT = 100;
 const MAX_PAGES = 100;
 const TIMEOUT_MS = 25_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export interface MetaCatalogItem {
+  id: string | null;
   retailerId: string;
   name: string;
   imageUrl: string | null;
@@ -20,6 +21,7 @@ export interface MetaCatalogItem {
 }
 
 interface MetaProductRaw {
+  id?: unknown;
   retailer_id?: unknown;
   name?: unknown;
   image_url?: unknown;
@@ -74,6 +76,7 @@ function toMetaItem(value: unknown): MetaCatalogItem | null {
     return null;
   }
   return {
+    id: readString(raw.id),
     retailerId,
     name: readString(raw.name) ?? '',
     imageUrl: readString(raw.image_url),
@@ -433,6 +436,165 @@ export async function createMetaCatalogItem(
     throw new HttpError(
       502,
       'No se pudo conectar con Meta para publicar el producto.',
+      'META_API_ERROR'
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export interface MetaCatalogUpdateInput {
+  name?: string;
+  description?: string | null;
+  price?: number | null;
+  imageUrl?: string | null;
+  url?: string | null;
+  availability?: string;
+}
+
+/**
+ * Actualiza un ítem plano existente del catálogo. Requiere el id del ítem
+ * (no el retailer_id), que se obtiene con findMetaCatalogItem.
+ */
+export async function updateMetaCatalogItem(
+  itemId: string,
+  input: MetaCatalogUpdateInput
+): Promise<void> {
+  const { token, version } = requireConfig();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const endpoint = `https://graph.facebook.com/${version}/${encodeURIComponent(itemId)}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.description !== undefined
+          ? { description: input.description ?? '' }
+          : {}),
+        ...(input.price !== undefined && input.price !== null
+          ? { price: `${input.price.toFixed(2)} USD`, currency: 'USD' }
+          : {}),
+        ...(input.imageUrl ? { image_url: input.imageUrl } : {}),
+        ...(input.url ? { url: input.url } : {}),
+        ...(input.availability ? { availability: input.availability } : {}),
+      }),
+      signal: controller.signal,
+    });
+
+    const body = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+      const metaMessage =
+        isRecord(body) && isRecord(body.error) && typeof body.error.message === 'string'
+          ? body.error.message
+          : null;
+      if (response.status === 401 || response.status === 403) {
+        throw new HttpError(
+          502,
+          'Meta rechazó el token o la integración no tiene permiso de escritura (catalog_management) sobre el catálogo.',
+          'META_WRITE_FORBIDDEN'
+        );
+      }
+      throw new HttpError(
+        502,
+        metaMessage
+          ? `Meta rechazó la actualización: ${metaMessage}`
+          : `Meta respondió con estado ${response.status} al actualizar el producto.`,
+        'META_API_ERROR'
+      );
+    }
+
+    cache = null;
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new HttpError(
+        502,
+        'Tiempo de espera agotado actualizando el producto en Meta.',
+        'META_API_ERROR'
+      );
+    }
+    logger.warn({ endpoint: 'meta.catalog.update' }, 'No se pudo conectar con Meta Graph API');
+    throw new HttpError(
+      502,
+      'No se pudo conectar con Meta para actualizar el producto.',
+      'META_API_ERROR'
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Elimina un ítem plano del catálogo. Un 404 se trata como “ya eliminado”.
+ */
+export async function deleteMetaCatalogItem(itemId: string): Promise<void> {
+  const { token, version } = requireConfig();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const endpoint = `https://graph.facebook.com/${version}/${encodeURIComponent(itemId)}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
+
+    if (response.status === 404) {
+      cache = null;
+      return;
+    }
+
+    const body = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+      const metaMessage =
+        isRecord(body) && isRecord(body.error) && typeof body.error.message === 'string'
+          ? body.error.message
+          : null;
+      if (response.status === 401 || response.status === 403) {
+        throw new HttpError(
+          502,
+          'Meta rechazó el token o la integración no tiene permiso de escritura (catalog_management) sobre el catálogo.',
+          'META_WRITE_FORBIDDEN'
+        );
+      }
+      throw new HttpError(
+        502,
+        metaMessage
+          ? `Meta rechazó la eliminación: ${metaMessage}`
+          : `Meta respondió con estado ${response.status} al eliminar el producto.`,
+        'META_API_ERROR'
+      );
+    }
+
+    cache = null;
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new HttpError(
+        502,
+        'Tiempo de espera agotado eliminando el producto en Meta.',
+        'META_API_ERROR'
+      );
+    }
+    logger.warn({ endpoint: 'meta.catalog.delete' }, 'No se pudo conectar con Meta Graph API');
+    throw new HttpError(
+      502,
+      'No se pudo conectar con Meta para eliminar el producto.',
       'META_API_ERROR'
     );
   } finally {
