@@ -156,6 +156,9 @@ bash ./scripts/apply-meta-retailer-migration.sh
 log "Aplicando migración de Contifico (contifico_id, contifico_sku)"
 bash ./scripts/apply-contifico-migration.sh
 
+log "Aplicando migración de nombre de variante (product_variants.nombre)"
+bash ./scripts/apply-variant-nombre-migration.sh
+
 log "Construyendo y levantando servicios"
 docker compose up -d --build
 
@@ -171,6 +174,11 @@ for i in $(seq 1 60); do
   }
   sleep 2
 done
+
+log "Rellenando nombres de variante faltantes (idempotente)"
+docker exec altosa-api node dist/scripts/backfill-variant-names.js \
+  --apply --report /tmp/variant-names-backfill.csv \
+  || warn "El backfill de nombres falló; ejecuta scripts/backfill-variant-names.sh --apply"
 
 log "Conectando n8n a altosa_backend"
 bash ./scripts/connect-n8n.sh

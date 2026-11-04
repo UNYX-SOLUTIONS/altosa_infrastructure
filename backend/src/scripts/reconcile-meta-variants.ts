@@ -20,6 +20,7 @@ import 'dotenv/config';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { disconnectPrisma, getPrisma } from '../config/prisma';
+import { buildFlatName } from '../utils/product-naming';
 
 const META_FIELDS =
   'retailer_id,name,availability,visibility,price,image_url,url,description,custom_label_0,custom_label_1';
@@ -550,6 +551,7 @@ async function createVariant(product: ProductRow, item: MetaItem, estadoId: numb
       data: {
         idProducto: product.idProducto,
         sku,
+        nombre: buildFlatName(product.nombre, color),
         color,
         material,
         descripcion: item.description ?? item.name,

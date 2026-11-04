@@ -114,6 +114,7 @@ model ProductoVariante {
   contificoId                 String?  @map("contifico_id") @db.Text
   contificoSku                String?  @map("contifico_sku") @db.Text
   color                       String?  @db.Text
+  nombre                      String?  @db.Text
   precioUsd                   Decimal? @map("precio_usd") @db.Decimal(12, 2)
   material                    String?  @db.Text
   tapizado                    String?  @db.Text

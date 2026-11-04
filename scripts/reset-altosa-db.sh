@@ -73,10 +73,11 @@ docker exec -i "$PG_CONTAINER" pg_restore \
   --no-owner --no-privileges /tmp/altosa_reset.backup \
   2>&1 | tee /tmp/altosa_reset_restore.log || true
 
-echo "[6/8] Aplicando migraciones Meta/Kommo..."
+echo "[6/8] Aplicando migraciones Meta/Kommo/Nombre de variante..."
 for sql in \
   "$REPO_DIR/backend/prisma/sql/meta_retailer_id.sql" \
-  "$REPO_DIR/backend/prisma/sql/kommo_templates.sql"
+  "$REPO_DIR/backend/prisma/sql/kommo_templates.sql" \
+  "$REPO_DIR/backend/prisma/sql/variant_nombre.sql"
 do
   if [ -f "$sql" ]; then
     echo "      Aplicando $(basename "$sql")..."

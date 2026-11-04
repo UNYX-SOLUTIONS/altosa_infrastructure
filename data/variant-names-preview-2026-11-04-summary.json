@@ -1,0 +1,225 @@
+{
+  "checkedAt": "2026-11-04T19:02:03.618Z",
+  "totalVariants": 1200,
+  "sourceCounts": {
+    "producto_color": 406,
+    "url": 5,
+    "sin_color": 11,
+    "override": 3,
+    "estandar": 771,
+    "producto_incluye_color": 4
+  },
+  "duplicatesDisambiguated": 4,
+  "examples": [
+    {
+      "idVariante": 7,
+      "idProducto": 3,
+      "producto": "La Silla Sandy",
+      "sku": "XS-2757BEICUER",
+      "color": "Beige con cuerina café",
+      "nombre": "La Silla Sandy Beige con cuerina café",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 8,
+      "idProducto": 3,
+      "producto": "La Silla Sandy",
+      "sku": "XS-2757BE",
+      "color": "Beige",
+      "nombre": "La Silla Sandy Beige",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 9,
+      "idProducto": 3,
+      "producto": "La Silla Sandy",
+      "sku": "XS-2757T",
+      "color": "Taupe",
+      "nombre": "La Silla Sandy Taupe",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 10,
+      "idProducto": 3,
+      "producto": "La Silla Sandy",
+      "sku": "XS-2757G",
+      "color": "Gris",
+      "nombre": "La Silla Sandy Gris",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 11,
+      "idProducto": 3,
+      "producto": "La Silla Sandy",
+      "sku": "XS-2757GRECUE",
+      "color": "Verde",
+      "nombre": "La Silla Sandy Verde",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 178,
+      "idProducto": 73,
+      "producto": "Base Redonda",
+      "sku": "FT-B121-1",
+      "color": "",
+      "nombre": "Base Redonda Eco",
+      "origen": "url",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 179,
+      "idProducto": 74,
+      "producto": "Base Cuadrada",
+      "sku": "FT-B121-2",
+      "color": "",
+      "nombre": "Base Cuadrada Eco",
+      "origen": "url",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 180,
+      "idProducto": 73,
+      "producto": "Base Redonda",
+      "sku": "FT-B122-1",
+      "color": "",
+      "nombre": "Base Redonda Plana",
+      "origen": "url",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 181,
+      "idProducto": 74,
+      "producto": "Base Cuadrada",
+      "sku": "FT-B122-2",
+      "color": "",
+      "nombre": "Base Cuadrada Plana",
+      "origen": "url",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 182,
+      "idProducto": 75,
+      "producto": "Base Cruz",
+      "sku": "FT-B071",
+      "color": "",
+      "nombre": "Base Cruz Corta",
+      "origen": "url",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 192,
+      "idProducto": 81,
+      "producto": "La Silla Nicole",
+      "sku": "098-W",
+      "color": "Blanco con gris",
+      "nombre": "La Silla Nicole Blanco con gris",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 193,
+      "idProducto": 81,
+      "producto": "La Silla Nicole",
+      "sku": "098-G",
+      "color": "Gris",
+      "nombre": "La Silla Nicole Gris",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 194,
+      "idProducto": 81,
+      "producto": "La Silla Nicole",
+      "sku": "098-B",
+      "color": "Negro",
+      "nombre": "La Silla Nicole Negro",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 230,
+      "idProducto": 73,
+      "producto": "Base Redonda",
+      "sku": "",
+      "color": "",
+      "nombre": "Base Redonda 45 × 73 × 58 cm",
+      "origen": "override",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 231,
+      "idProducto": 102,
+      "producto": "Base Cruz Fina",
+      "sku": "FT-B074",
+      "color": "",
+      "nombre": "Base Cruz Fina",
+      "origen": "sin_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 243,
+      "idProducto": 73,
+      "producto": "Base Redonda",
+      "sku": "FT-B153B",
+      "color": "",
+      "nombre": "Base Redonda 45 × 73 × 50 cm",
+      "origen": "override",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 244,
+      "idProducto": 75,
+      "producto": "Base Cruz",
+      "sku": "X-BASE5",
+      "color": "",
+      "nombre": "Base Cruz Acero",
+      "origen": "override",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 245,
+      "idProducto": 112,
+      "producto": "SILLA CYNTHIA BEIGE",
+      "sku": "091003BE",
+      "color": "Estándar",
+      "nombre": "SILLA CYNTHIA BEIGE",
+      "origen": "estandar",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 996,
+      "idProducto": 73,
+      "producto": "Base Redonda",
+      "sku": "META-WC-238859",
+      "color": "Dorada",
+      "nombre": "Base Redonda Dorada",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 1006,
+      "idProducto": 3,
+      "producto": "La Silla Sandy",
+      "sku": "META-WC-239987",
+      "color": "Ladrillo",
+      "nombre": "La Silla Sandy Ladrillo",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    },
+    {
+      "idVariante": 1035,
+      "idProducto": 3,
+      "producto": "La Silla Sandy",
+      "sku": "META-WC-239567",
+      "color": "Azul",
+      "nombre": "La Silla Sandy Azul",
+      "origen": "producto_color",
+      "duplicado": "NO"
+    }
+  ]
+}

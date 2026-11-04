@@ -50,6 +50,16 @@ else
 fi
 echo
 
+echo "--- product_variants.nombre ---"
+VARIANT_NAME_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='nombre';")"
+if [ -n "$VARIANT_NAME_COL" ]; then
+  echo "OK: product_variants.$VARIANT_NAME_COL"
+else
+  echo "ERROR: falta product_variants.nombre (ejecuta scripts/apply-variant-nombre-migration.sh)" >&2
+  exit 1
+fi
+echo
+
 echo "--- kommo_templates ---"
 KOMMO_TABLE="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT to_regclass('public.kommo_templates');")"
 KOMMO_VARIANT_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='kommo_template_id';")"

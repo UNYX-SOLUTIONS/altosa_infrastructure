@@ -327,6 +327,7 @@ export async function syncContificoCatalog(
       data: {
         idProducto: parent.idProducto,
         sku,
+        nombre: buildFlatName(parent.producto, variantColor),
         color: variantColor,
         descripcion: product.description,
         precioUsd: product.price,

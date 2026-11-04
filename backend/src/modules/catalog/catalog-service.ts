@@ -131,6 +131,7 @@ function mapVariante(variante: VarianteConRelaciones) {
     contificoId: variante.contificoId,
     contificoSku: variante.contificoSku,
     color: variante.color,
+    nombre: variante.nombre,
     descripcion: variante.descripcion,
     precioUsd: toNumber(variante.precioUsd),
     imagenUrl: variante.imagenUrl,
@@ -766,9 +767,10 @@ async function validateVariantReferences(input: VariantBody | UpdateVariantBody)
   }
 }
 
-function variantCreateData(input: VariantBody) {
+function variantCreateData(input: VariantBody, productName: string) {
   return {
     sku: input.sku?.trim() || null,
+    nombre: input.nombre?.trim() || buildFlatName(productName, input.color ?? null),
     color: input.color || null,
     descripcion: input.descripcion || null,
     precioUsd: input.precioUsd ?? null,
@@ -809,6 +811,7 @@ function variantUpdateData(input: UpdateVariantBody): Prisma.ProductoVarianteUnc
   const data: Prisma.ProductoVarianteUncheckedUpdateInput = {};
 
   if (input.sku !== undefined) data.sku = input.sku.trim() || null;
+  if (input.nombre !== undefined) data.nombre = input.nombre.trim() || null;
   if (input.color !== undefined) data.color = input.color || null;
   if (input.descripcion !== undefined) data.descripcion = input.descripcion || null;
   if (input.precioUsd !== undefined) data.precioUsd = input.precioUsd;
@@ -888,7 +891,7 @@ export async function createProduct(input: CreateProductBody) {
       updatedAt: now,
       variants: {
         create: input.variantes.map((variante) => ({
-          ...variantCreateData(variante),
+          ...variantCreateData(variante, input.nombre),
           estadoId: variante.estadoId ?? input.estadoId,
           isActive: true,
           createdAt: now,
@@ -1121,7 +1124,7 @@ export async function createVariant(productId: number, input: VariantBody) {
   const created = await prisma.productoVariante.create({
     data: {
       idProducto: productId,
-      ...variantCreateData(input),
+      ...variantCreateData(input, producto.producto),
       estadoId: input.estadoId ?? producto.estadoId,
       isActive: true,
       createdAt: now,
@@ -1187,6 +1190,7 @@ export async function updateVariant(
       idProducto: true,
       sku: true,
       color: true,
+      nombre: true,
       descripcion: true,
       precioUsd: true,
       isActive: true,
@@ -1296,6 +1300,11 @@ export async function updateVariant(
   await validateVariantReferences(input);
 
   const data = variantUpdateData(input);
+  // Compatibilidad con clientes anteriores: si solo envían color y la
+  // variante aún no tiene nombre, se genera desde producto + color.
+  if (input.nombre === undefined && input.color !== undefined && !existing.nombre) {
+    data.nombre = buildFlatName(existing.producto.producto, input.color ?? null);
+  }
   data.updatedAt = new Date();
 
   const updated = await prisma.productoVariante.update({
@@ -1404,6 +1413,7 @@ interface SyncProductsResult {
 function normalizeSyncVariant(input: SyncProductBody['variantes'][number]) {
   return {
     sku: input.sku,
+    nombre: input.nombre?.trim() || null,
     color: input.color?.trim() || null,
     descripcion: input.descripcion?.trim() || null,
     precioUsd: input.precioUsd ?? null,
@@ -1529,6 +1539,7 @@ export async function syncProducts(
         : [
             {
               sku: item.codigo,
+              nombre: item.nombre.trim(),
               color: 'Estándar',
               descripcion: item.descripcion?.trim() || null,
               precioUsd: null,
@@ -1553,6 +1564,7 @@ export async function syncProducts(
     let existingProductIsActive = existingVariant?.producto.isActive ?? false;
     let mergePrimaryVariant: {
       idVariante: number;
+      nombre: string | null;
       color: string | null;
       descripcion: string | null;
       imagenUrl: string | null;
@@ -1572,6 +1584,7 @@ export async function syncProducts(
           variants: {
             select: {
               idVariante: true,
+              nombre: true,
               color: true,
               descripcion: true,
               imagenUrl: true,
@@ -1645,6 +1658,7 @@ export async function syncProducts(
         where: { sku: variante.sku },
         select: {
           idVariante: true,
+          nombre: true,
           color: true,
           descripcion: true,
           imagenUrl: true,
@@ -1668,6 +1682,10 @@ export async function syncProducts(
             // externos que vengan del ERP.
             idProducto: productId,
             sku: variante.sku,
+            nombre:
+              existing?.nombre ??
+              variante.nombre ??
+              buildFlatName(item.nombre, variante.color ?? existing?.color ?? null),
             precioUsd: variante.precioUsd,
             especificacionesAdicionales: mergeSyncSpecs(
               existing?.especificacionesAdicionales,
@@ -1684,6 +1702,10 @@ export async function syncProducts(
         : {
             idProducto: productId,
             sku: variante.sku,
+            nombre:
+              existing?.nombre ??
+              variante.nombre ??
+              buildFlatName(item.nombre, variante.color ?? existing?.color ?? null),
             color: variante.color ?? existing?.color ?? null,
             descripcion: variante.descripcion ?? existing?.descripcion ?? null,
             precioUsd: variante.precioUsd,
