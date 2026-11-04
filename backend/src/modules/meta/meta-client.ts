@@ -479,7 +479,7 @@ export async function updateMetaCatalogItem(
           ? { description: input.description ?? '' }
           : {}),
         ...(input.price !== undefined && input.price !== null
-          ? { price: `${input.price.toFixed(2)} USD`, currency: 'USD' }
+          ? { price: Math.round(input.price * 100), currency: 'USD' }
           : {}),
         ...(input.imageUrl ? { image_url: input.imageUrl } : {}),
         ...(input.url ? { url: input.url } : {}),

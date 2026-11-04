@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-11-04T15:36:58.795Z",
+  "altosaActiveVariants": 241,
+  "activeUnmappedVariants": 189,
+  "exactNameMatches": 0,
+  "fuzzyVariantsWithCandidate": 10,
+  "fuzzyCandidateRows": 12,
+  "withoutAnyCandidate": 179,
+  "contificoActive": 771,
+  "contificoActiveLinkedToAnyAltosaVariant": 761,
+  "contificoActiveUnlinked": 10,
+  "contificoActiveLinkedButInactiveInAltosa": 709,
+  "contificoActiveWithAltosaNameCandidate": 10,
+  "contificoActiveWithoutCandidate": 0
+}

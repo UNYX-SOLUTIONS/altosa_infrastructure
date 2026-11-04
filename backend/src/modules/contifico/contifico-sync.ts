@@ -148,8 +148,13 @@ export async function syncContificoCatalog(
       updated: 0,
       skipped: 0,
       deactivated: 0,
+      conflicts: 0,
+      activeInAltosaInactiveInContifico: 0,
+      inactiveInAltosaActiveInContifico: 0,
     },
   };
+  const mappingConflictSkuSample: string[] = [];
+  const statusMismatchSkuSample: string[] = [];
 
   const variants = await prisma.productoVariante.findMany({
     select: {
@@ -201,13 +206,55 @@ export async function syncContificoCatalog(
     }
     seenContificoIds.add(key(product.externalId));
 
-    const existing =
-      byContificoId.get(key(product.externalId)) ??
-      byContificoSku.get(key(product.sku)) ??
-      bySku.get(key(product.sku)) ??
-      (matchByName ? byFlatName.get(normalizeLooseText(product.name)) : null);
+    let existing = byContificoId.get(key(product.externalId)) ?? null;
+    let matchSource: 'id' | 'contificoSku' | 'sku' | 'name' | null = existing
+      ? 'id'
+      : null;
+
+    if (!existing) {
+      existing = byContificoSku.get(key(product.sku)) ?? null;
+      matchSource = existing ? 'contificoSku' : null;
+    }
+    if (!existing) {
+      existing = bySku.get(key(product.sku)) ?? null;
+      matchSource = existing ? 'sku' : null;
+    }
+    if (!existing && matchByName) {
+      existing = byFlatName.get(normalizeLooseText(product.name)) ?? null;
+      matchSource = existing ? 'name' : null;
+    }
 
     if (existing) {
+      const mappedToOtherContifico =
+        (existing.contificoId !== null &&
+          key(existing.contificoId) !== key(product.externalId)) ||
+        (existing.contificoSku !== null &&
+          key(existing.contificoSku) !== key(product.sku));
+
+      // Un SKU/nombre de Contifico no debe reasignar una variante que ya está
+      // vinculada a otro producto. Esto evita que dos SKUs duplicados (ej.
+      // PC071 y PC071N) hagan oscilar el mapeo en cada corrida.
+      if (matchSource !== 'id' && mappedToOtherContifico) {
+        counters.variants.conflicts += 1;
+        if (existing.sku && mappingConflictSkuSample.length < 20) {
+          mappingConflictSkuSample.push(existing.sku);
+        }
+        continue;
+      }
+
+      // El ERP es dueño de la aprobación: solo se reporta la diferencia.
+      if (existing.isActive && !product.isActive) {
+        counters.variants.activeInAltosaInactiveInContifico += 1;
+        if (existing.sku && statusMismatchSkuSample.length < 20) {
+          statusMismatchSkuSample.push(`ACTIVA_ALTOSA_INACTIVA_CONTIFICO:${existing.sku}`);
+        }
+      } else if (!existing.isActive && product.isActive) {
+        counters.variants.inactiveInAltosaActiveInContifico += 1;
+        if (existing.sku && statusMismatchSkuSample.length < 20) {
+          statusMismatchSkuSample.push(`INACTIVA_ALTOSA_ACTIVA_CONTIFICO:${existing.sku}`);
+        }
+      }
+
       counters.products.updated += 1;
       counters.variants.updated += 1;
       touchedProductIds.add(existing.idProducto);
@@ -379,6 +426,8 @@ export async function syncContificoCatalog(
     }
   }
 
+  counters.mappingConflictSkuSample = mappingConflictSkuSample;
+  counters.statusMismatchSkuSample = statusMismatchSkuSample;
   counters.durationMs = Date.now() - startedAt;
   logger.info(counters, 'Sync Contifico -> Altosa completado');
   return counters;

@@ -1,0 +1,80 @@
+{
+  "checkedAt": "2026-11-04T16:10:02.121Z",
+  "altosa": {
+    "activeProducts": 111,
+    "activeVariants": 241,
+    "activeMappedVariants": 52,
+    "activeUnmappedVariants": 189,
+    "activeUnmappedWithSkuCandidate": 0
+  },
+  "contifico": {
+    "products": 783,
+    "active": 771,
+    "inactive": 12,
+    "activeLinkedToAltosa": 761,
+    "activeNotLinkedToAltosa": 10,
+    "inactiveNotLinkedToAltosa": 0
+  },
+  "issues": {
+    "stockMismatches": 0,
+    "priceMismatches": 0,
+    "activeInAltosaInactiveInContifico": 0,
+    "missingInContifico": 0,
+    "activeVariantsWithoutMapping": 189,
+    "activeVariantsWithoutMappingWithSkuCandidate": 0,
+    "duplicateMappings": 0
+  },
+  "samples": {
+    "stockMismatches": [],
+    "priceMismatches": [],
+    "statusMismatches": [],
+    "missingInContifico": [],
+    "unmappedActive": [
+      "[Banco Exterior Rectangular / -] SKU=- precio=210",
+      "[Base Redonda / -] SKU=- precio=89",
+      "[Base Redonda / -] SKU=FT-B153B precio=189",
+      "[El Taburete Alessia / Gris] SKU=BS-08G precio=49",
+      "[El taburete Amy / Gris] SKU=BY-8445G precio=119",
+      "[El taburete Amy / Beige ] SKU=3083H-BEIGE precio=119",
+      "[El taburete Amy / Taupe] SKU=6083H-65TAUPE precio=119",
+      "[El taburete Brunet / Taupe] SKU=YYK-2022T precio=89",
+      "[El taburete Brunet / Gris] SKU=YYK-2022G precio=89",
+      "[El taburete Brunet / Beige] SKU=YYK-2022B precio=89",
+      "[El Taburete Bruno / Taupe] SKU=YY-2050BT precio=89",
+      "[El taburete Ernesto / Gris] SKU=BS-06G precio=49",
+      "[El taburete Henry / Beige] SKU=BS-07K precio=49",
+      "[El taburete Roberto / Café] SKU=PP-696F-PB precio=105",
+      "[El taburete Roberto / Gris] SKU=PP-696F-PGR precio=105",
+      "[El Taburete Sally / Taupe] SKU=YYK-2059T precio=89",
+      "[El Taburete Sally / Beige] SKU=JT-2059-1BEI precio=89",
+      "[El Taburete Sally / Gris] SKU=YY-2059G precio=89",
+      "[El taburete Toomie / Gris] SKU=        \nBS-08G2 precio=75",
+      "[El taburete Yerovi / Negro] SKU=XS-2704-BWB precio=129",
+      "[El taburete Yerovi / Gris] SKU=XS2704G precio=129",
+      "[Fontana Mesa Comedor / -] SKU=FT-B047B precio=330",
+      "[La silla adahia / Beige] SKU=WR211B precio=59",
+      "[La silla adahia / Gris] SKU=WR211-G precio=59",
+      "[La silla adahia / Negro] SKU=WR211-BLACK precio=59",
+      "[La silla Adriana / Verde] SKU=PP-868AGR precio=49",
+      "[La Silla Alessia  / Gris] SKU=PC155-GO precio=32",
+      "[La Silla Alessia  / Negro] SKU=DC-123N precio=32",
+      "[La Silla Alessia  / Amarilla] SKU=DC-123Y precio=32",
+      "[La Silla Alessia  / Naranja] SKU=DC-123ORAN precio=32"
+    ],
+    "unmappedActiveWithCandidate": [],
+    "unlinkedContificoActive": [
+      "[216] CALENTADOR DE TOALLAS stock=0.0 pvp1=129.4642",
+      "[23B] CALENTADOR DE TOALLAS stock=0.0 pvp1=120.5357",
+      "[BW235A] SILLA EAMES AMARILLO stock=0.0 pvp1=34.79",
+      "[BW235N] EAMES NEGRO S/BRAZO stock=0.0 pvp1=31.3043",
+      "[DLC-B635H] SILLA PATTY ALTA BLANCA stock=0.0 pvp1=141.74",
+      "[DLC-B635L] SILLA NEW PATTY NEGRA stock=0.0 pvp1=129.5652",
+      "[DT03B] MESA EAMES 80DIAMETRO BLANCA MDF stock=0.0 pvp1=93.75",
+      "[PC071N] SILLA LOLA NEGRO stock=5.0 pvp1=53.05",
+      "[PP-01R] SILLA EAMES ROJA stock=0.0 pvp1=22.61",
+      "[PP706NEG] SILLA MARTINA NEGRO stock=0.0 pvp1=48.21"
+    ],
+    "unlinkedContificoInactive": []
+  },
+  "duplicateGroups": []
+}

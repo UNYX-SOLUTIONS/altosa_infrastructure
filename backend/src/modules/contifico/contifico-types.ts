@@ -189,8 +189,26 @@ export interface ContificoSyncCounters {
     updated: number;
     skipped: number;
     deactivated: number;
+    /**
+     * Productos de Contifico que coinciden por SKU/nombre con una variante
+     * ya vinculada a otro `contifico_id`. No se reasignan para evitar que el
+     * mapeo oscile entre SKUs duplicados (ej. PC071 vs PC071N).
+     */
+    conflicts: number;
+    /**
+     * Variante activa en Altosa pero inactiva (I) en Contifico. Requiere
+     * revisión: el ERP es dueño de la aprobación y no se cambia sola.
+     */
+    activeInAltosaInactiveInContifico: number;
+    /**
+     * Variante inactiva en Altosa pero activa (A) en Contifico. Es el backlog
+     * normal de productos importados pendientes de aprobación.
+     */
+    inactiveInAltosaActiveInContifico: number;
   };
   prunedSkuSample?: string[];
+  mappingConflictSkuSample?: string[];
+  statusMismatchSkuSample?: string[];
 }
 
 export interface ContificoProductSuggestion {
