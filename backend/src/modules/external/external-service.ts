@@ -6,6 +6,7 @@ import {
   buildFlatName,
   inferBaseName,
   inferVariantColor,
+  normalizeLooseText,
 } from '../../utils/product-naming';
 import { resolveSyncEstados } from '../catalog/catalog-estados';
 import {
@@ -602,9 +603,14 @@ export async function getExternalHealth(
 
   const contificoById = new Map<string, ContificoProductDto>();
   const contificoByCode = new Map<string, ContificoProductDto>();
+  const contificoByName = new Map<string, ContificoProductDto>();
   for (const product of contificoProducts ?? []) {
     contificoById.set(normalize(product.id), product);
     contificoByCode.set(normalize(resolveContificoSku(product)), product);
+    const nameKey = normalizeLooseText(product.nombre);
+    if (nameKey && !contificoByName.has(nameKey)) {
+      contificoByName.set(nameKey, product);
+    }
   }
 
   const metaRetailerIds = new Set(
@@ -626,7 +632,21 @@ export async function getExternalHealth(
           const byCode = contificoByCode.get(
             normalize(variant.contificoSku ?? variant.sku)
           );
-          contifico = byCode ? 'mismatch' : 'missing';
+          if (byCode) {
+            contifico = 'mismatch';
+          } else {
+            // El ID cambió o el producto se recreó: si el nombre normalizado
+            // coincide, es un mapeo desactualizado, no un producto eliminado.
+            const nameCandidates = [
+              variant.nombre,
+              buildFlatName(variant.producto.producto, variant.color),
+              variant.producto.producto,
+            ];
+            const byName = nameCandidates
+              .map((value) => normalizeLooseText(value ?? ''))
+              .find((key) => key && contificoByName.has(key));
+            contifico = byName ? 'mismatch' : 'missing';
+          }
         }
       }
     }
