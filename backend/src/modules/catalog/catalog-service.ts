@@ -199,7 +199,9 @@ export async function listProducts(query: ProductsQuery) {
         estado: true,
         subcategoria: { include: { categoria: true } },
         variants: {
-          where: { isActive: true },
+          ...(query.includeInactiveVariants
+            ? {}
+            : { where: { isActive: true } }),
           include: VARIANT_RELATIONS,
           orderBy: { idVariante: 'asc' },
         },

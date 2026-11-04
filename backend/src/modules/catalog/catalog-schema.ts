@@ -5,6 +5,11 @@ const booleanQuery = z
   .default('true')
   .transform((value) => value === 'true');
 
+const activeFilterQuery = z
+  .enum(['all', 'true', 'false'])
+  .default('true')
+  .transform((value) => (value === 'all' ? undefined : value === 'true'));
+
 export const idParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
@@ -19,8 +24,12 @@ export const productsQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   categoryId: z.coerce.number().int().positive().optional(),
   subcategoryId: z.coerce.number().int().positive().optional(),
-  active: booleanQuery,
+  active: activeFilterQuery,
   withVariants: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  includeInactiveVariants: z
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
