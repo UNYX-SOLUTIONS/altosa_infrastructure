@@ -453,6 +453,22 @@ export interface MetaCatalogUpdateInput {
 }
 
 /**
+ * Meta exige `price` como entero en la unidad menor de la moneda (centavos)
+ * o null. Si llega un string/Decimal o un valor inválido, se omite el campo
+ * para no romper el resto de la actualización con un error de esquema.
+ */
+function toMetaPriceCents(price: unknown): number | null {
+  if (price === null || price === undefined || price === '') {
+    return null;
+  }
+  const numeric = typeof price === 'number' ? price : Number(price);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return null;
+  }
+  return Math.round(numeric * 100);
+}
+
+/**
  * Actualiza un ítem plano existente del catálogo. Requiere el id del ítem
  * (no el retailer_id), que se obtiene con findMetaCatalogItem.
  */
@@ -466,6 +482,7 @@ export async function updateMetaCatalogItem(
   const endpoint = `https://graph.facebook.com/${version}/${encodeURIComponent(itemId)}`;
 
   try {
+    const priceCents = toMetaPriceCents(input.price);
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -478,9 +495,7 @@ export async function updateMetaCatalogItem(
         ...(input.description !== undefined
           ? { description: input.description ?? '' }
           : {}),
-        ...(input.price !== undefined && input.price !== null
-          ? { price: Math.round(input.price * 100), currency: 'USD' }
-          : {}),
+        ...(priceCents !== null ? { price: priceCents, currency: 'USD' } : {}),
         ...(input.imageUrl ? { image_url: input.imageUrl } : {}),
         ...(input.url ? { url: input.url } : {}),
         ...(input.availability ? { availability: input.availability } : {}),
