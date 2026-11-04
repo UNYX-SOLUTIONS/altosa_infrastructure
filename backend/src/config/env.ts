@@ -21,6 +21,14 @@ const envSchema = z.object({
     emptyToUndefined,
     z.string().trim().regex(/^v\d+\.\d+$/).default('v26.0')
   ),
+  META_FEED_USER: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().min(1).max(100).optional()
+  ),
+  META_FEED_PASSWORD: z.preprocess(
+    emptyToUndefined,
+    z.string().min(8).max(200).optional()
+  ),
   CONTIFICO_API_URL: z.preprocess(
     emptyToUndefined,
     z.string().url().default('https://api.contifico.com/sistema/api/v1')

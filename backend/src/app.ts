@@ -9,6 +9,7 @@ import { getPrisma } from './config/prisma';
 import { apiKeyMiddleware } from './middlewares/api-key-middleware';
 import { errorMiddleware, notFoundMiddleware } from './middlewares/error-middleware';
 import { globalRateLimiter } from './middlewares/rate-limit-middleware';
+import { metaFeedRouter } from './modules/meta-feed/meta-feed-routes';
 import { apiRouter } from './routes';
 
 export const app = express();
@@ -47,6 +48,10 @@ app.get('/health', async (_req, res) => {
     });
   }
 });
+
+// Feed público para Meta (Basic Auth o x-api-key para el BFF del ERP).
+// Se monta fuera de /api/v1 para que Meta no necesite la API key interna.
+app.use('/feeds', metaFeedRouter);
 
 // API privada: rate limit + API key servicio-a-servicio (sin CORS, sin navegador).
 app.use('/api/v1', globalRateLimiter, apiKeyMiddleware, apiRouter);
