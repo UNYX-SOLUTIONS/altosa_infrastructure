@@ -114,6 +114,7 @@ model ProductoVariante {
   metaMappingLocked           Boolean  @default(false) @map("meta_mapping_locked")
   contificoId                 String?  @map("contifico_id") @db.Text
   contificoSku                String?  @map("contifico_sku") @db.Text
+  contificoMappingLocked      Boolean  @default(false) @map("contifico_mapping_locked")
   color                       String?  @db.Text
   nombre                      String?  @db.Text
   precioUsd                   Decimal? @map("precio_usd") @db.Decimal(12, 2)

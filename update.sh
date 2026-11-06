@@ -99,7 +99,7 @@ bash ./scripts/apply-kommo-migration.sh
 log "Aplicando migración de Meta (meta_retailer_id, meta_mapping_locked)"
 bash ./scripts/apply-meta-retailer-migration.sh
 
-log "Aplicando migración de Contifico (contifico_id, contifico_sku)"
+log "Aplicando migración de Contifico (contifico_id, contifico_sku, contifico_mapping_locked)"
 bash ./scripts/apply-contifico-migration.sh
 
 log "Aplicando migración de nombre de variante (product_variants.nombre)"

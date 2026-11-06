@@ -745,7 +745,7 @@ export async function repairExternalMapping(
     if (input.action === 'unmap') {
       await prisma.productoVariante.update({
         where: { idVariante: variant.idVariante },
-        data: { metaRetailerId: null, metaMappingLocked: false },
+        data: { metaRetailerId: null, metaMappingLocked: true },
       });
       clearHealthCache();
       return { variantId: variant.idVariante, source: 'meta', action: 'unmap' };
@@ -770,7 +770,11 @@ export async function repairExternalMapping(
   if (input.action === 'unmap') {
     await prisma.productoVariante.update({
       where: { idVariante: variant.idVariante },
-      data: { contificoId: null, contificoSku: null },
+      data: {
+        contificoId: null,
+        contificoSku: null,
+        contificoMappingLocked: true,
+      },
     });
     clearHealthCache();
     return {

@@ -50,6 +50,14 @@ SKU_COLUMN="$(docker exec -i altosa-postgres psql -tA \
   exit 1
 }
 
+LOCK_COLUMN="$(docker exec -i altosa-postgres psql -tA \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'product_variants' AND column_name = 'contifico_mapping_locked';")"
+[ "$LOCK_COLUMN" = "1" ] || {
+  echo "ERROR: no existe product_variants.contifico_mapping_locked tras la migración." >&2
+  exit 1
+}
+
 INDEX_DEF="$(docker exec -i altosa-postgres psql -tA \
   -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -c "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'product_variants' AND indexname = 'product_variants_contifico_id_key';")"

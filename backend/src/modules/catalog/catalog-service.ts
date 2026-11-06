@@ -202,6 +202,7 @@ function mapVariante(variante: VarianteConRelaciones) {
     metaMappingLocked: variante.metaMappingLocked,
     contificoId: variante.contificoId,
     contificoSku: variante.contificoSku,
+    contificoMappingLocked: variante.contificoMappingLocked,
     color: variante.color,
     nombre: variante.nombre,
     descripcion: variante.descripcion,
@@ -875,6 +876,9 @@ function variantCreateData(input: VariantBody, productName: string) {
         : input.metaMappingLocked ?? false,
     contificoId: normalizeContificoId(input.contificoId),
     contificoSku: input.contificoSku?.trim() || null,
+    contificoMappingLocked:
+      input.contificoMappingLocked ??
+      normalizeContificoId(input.contificoId) !== null,
   };
 }
 
@@ -921,6 +925,9 @@ function variantUpdateData(input: UpdateVariantBody): Prisma.ProductoVarianteUnc
   }
   if (input.contificoId !== undefined) {
     data.contificoId = normalizeContificoId(input.contificoId);
+    data.contificoMappingLocked = input.contificoMappingLocked === false ? false : true;
+  } else if (input.contificoMappingLocked !== undefined) {
+    data.contificoMappingLocked = input.contificoMappingLocked;
   }
   if (input.contificoSku !== undefined) {
     data.contificoSku = input.contificoSku?.trim() || null;
@@ -966,7 +973,9 @@ export async function createProduct(input: CreateProductBody) {
       updatedAt: now,
       variants: {
         create: input.variantes.map((variante) => {
-          const estadoId = variante.estadoId ?? input.estadoId;
+          const estadoId =
+            variante.estadoId ??
+            (variante.isActive === false ? ESTADO_INACTIVO : input.estadoId);
           return {
             ...variantCreateData(variante, input.nombre),
             estadoId,
@@ -1181,6 +1190,20 @@ export async function updateProduct(
         );
       }
     }
+
+    // Si el nombre de la variante era el automático (producto + color), se
+    // renombra junto con el producto. Los nombres manuales se respetan.
+    if (input.nombre !== undefined) {
+      for (const variant of existing.variants) {
+        const nextName = variantNames.get(variant.idVariante);
+        if (nextName && nextName !== (variant.nombre ?? '')) {
+          await prisma.productoVariante.update({
+            where: { idVariante: variant.idVariante },
+            data: { nombre: nextName, updatedAt: new Date() },
+          });
+        }
+      }
+    }
   }
 
   if (input.subcategoryId !== undefined) {
@@ -1382,7 +1405,9 @@ export async function createVariant(productId: number, input: VariantBody) {
   await validateVariantReferences(input);
 
   const now = new Date();
-  const variantEstadoId = input.estadoId ?? producto.estadoId;
+  const variantEstadoId =
+    input.estadoId ??
+    (input.isActive === false ? ESTADO_INACTIVO : producto.estadoId);
   const created = await prisma.productoVariante.create({
     data: {
       idProducto: productId,
@@ -1610,6 +1635,13 @@ export async function updateVariant(
     data.isActive = resolvedIsActive;
     data.estadoId = resolvedIsActive ? ESTADO_ACTIVO : ESTADO_INACTIVO;
   }
+  if (
+    input.nombre !== undefined &&
+    input.nombre.trim() === (existing.nombre ?? '').trim() &&
+    externalVariantName !== (existing.nombre ?? '')
+  ) {
+    data.nombre = externalVariantName;
+  }
   data.updatedAt = new Date();
 
   const updated = await prisma.productoVariante.update({
@@ -1618,67 +1650,9 @@ export async function updateVariant(
     include: VARIANT_RELATIONS,
   });
 
-  // Si la variante aún no está mapeada y se guarda desde el ERP, intentamos
-  // publicarla en Meta y crearla en Contifico. Es best-effort: si faltan
-  // precio/imagen/SKU o permisos, el guardado en Altosa no se bloquea.
-  let mappingChanged = false;
-  if (
-    input.writeThroughMeta &&
-    !existing.metaRetailerId &&
-    input.metaRetailerId === undefined &&
-    updated.isActive
-  ) {
-    try {
-      const published = await publishVariantById(updated.idVariante);
-      mappingChanged = Boolean(published) || mappingChanged;
-    } catch (error) {
-      logger.warn(
-        { err: error, variantId: updated.idVariante, sku: updated.sku },
-        'La variante se guardó en Altosa, pero no se pudo publicar en Meta'
-      );
-    }
-  }
-
-  if (
-    input.writeThroughContifico &&
-    !existing.contificoId &&
-    input.contificoId === undefined &&
-    updated.isActive
-  ) {
-    try {
-      const mapping = await createContificoProductForVariant({
-        productName: existing.producto.producto,
-        variantName: updated.nombre,
-        sku: updated.sku,
-        color: updated.color,
-        description: updated.descripcion,
-        price: updated.precioUsd === null ? null : Number(updated.precioUsd),
-        isActive: updated.isActive,
-        categoryName: existing.producto.subcategoria?.categoria?.nombre ?? null,
-      });
-      if (mapping) {
-        await prisma.productoVariante.update({
-          where: { idVariante: updated.idVariante },
-          data: mapping,
-        });
-        mappingChanged = true;
-      }
-    } catch (error) {
-      logger.warn(
-        { err: error, variantId: updated.idVariante, sku: updated.sku },
-        'La variante se guardó en Altosa, pero no se pudo crear en Contifico'
-      );
-    }
-  }
-
-  if (mappingChanged) {
-    const refreshed = await prisma.productoVariante.findUniqueOrThrow({
-      where: { idVariante: updated.idVariante },
-      include: VARIANT_RELATIONS,
-    });
-    return mapVariante(refreshed);
-  }
-
+  // No auto-mapear al editar: si el usuario quitó un mapeo (Meta o Contifico)
+  // debe quedarse quitado. Las variantes nuevas se mapean al crearse y el
+  // mapeo manual/sync se hace explícitamente con los selectores del ERP.
   return mapVariante(updated);
 }
 

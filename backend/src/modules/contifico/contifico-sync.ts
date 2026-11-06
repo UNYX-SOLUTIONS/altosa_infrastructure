@@ -165,6 +165,7 @@ export async function syncContificoCatalog(
       isActive: true,
       contificoId: true,
       contificoSku: true,
+      contificoMappingLocked: true,
       descripcion: true,
       imagenUrl: true,
       especificacionesAdicionales: true,
@@ -225,6 +226,14 @@ export async function syncContificoCatalog(
     }
 
     if (existing) {
+      // Un mapeo bloqueado manualmente o una baja explícita desde el ERP no se
+      // reasigna por SKU/nombre. Solo se mantiene actualizado si coincide por ID.
+      if (existing.contificoMappingLocked && matchSource !== 'id') {
+        counters.products.skipped += 1;
+        counters.variants.skipped += 1;
+        continue;
+      }
+
       const mappedToOtherContifico =
         (existing.contificoId !== null &&
           key(existing.contificoId) !== key(product.externalId)) ||
@@ -269,8 +278,12 @@ export async function syncContificoCatalog(
           data: {
             precioUsd: product.price,
             especificacionesAdicionales: specs,
-            contificoId: product.externalId,
-            contificoSku: product.sku,
+            ...(existing.contificoMappingLocked
+              ? {}
+              : {
+                  contificoId: product.externalId,
+                  contificoSku: product.sku,
+                }),
             // Variante aprobada: no pisotear nombre/color/descripción/imagen
             // curados. Solo precio, stock, specs y mapeo.
             ...(existing.isActive
@@ -350,6 +363,7 @@ export async function syncContificoCatalog(
         isActive: true,
         contificoId: true,
         contificoSku: true,
+        contificoMappingLocked: true,
         descripcion: true,
         imagenUrl: true,
         especificacionesAdicionales: true,
@@ -371,6 +385,9 @@ export async function syncContificoCatalog(
 
   if (prune) {
     const stale = variants.filter((variant) => {
+      if (variant.contificoMappingLocked) {
+        return false;
+      }
       const contificoId = key(variant.contificoId);
       const contificoSku = key(variant.contificoSku ?? variant.sku);
       if (!contificoId && !contificoSku) {

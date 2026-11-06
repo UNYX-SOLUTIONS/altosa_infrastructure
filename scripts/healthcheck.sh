@@ -38,14 +38,15 @@ else
 fi
 echo
 
-echo "--- contifico_id + contifico_sku ---"
+echo "--- contifico_id + contifico_sku + contifico_mapping_locked ---"
 CONTIFICO_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='contifico_id';")"
 CONTIFICO_SKU_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='contifico_sku';")"
+CONTIFICO_LOCK_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='contifico_mapping_locked';")"
 CONTIFICO_IDX="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND tablename='product_variants' AND indexname='product_variants_contifico_id_key';")"
-if [ -n "$CONTIFICO_COL" ] && [ -n "$CONTIFICO_SKU_COL" ] && printf '%s' "$CONTIFICO_IDX" | grep -q '^CREATE UNIQUE INDEX'; then
-  echo "OK: product_variants.$CONTIFICO_COL + product_variants.$CONTIFICO_SKU_COL + índice único Contifico"
+if [ -n "$CONTIFICO_COL" ] && [ -n "$CONTIFICO_SKU_COL" ] && [ -n "$CONTIFICO_LOCK_COL" ] && printf '%s' "$CONTIFICO_IDX" | grep -q '^CREATE UNIQUE INDEX'; then
+  echo "OK: product_variants.$CONTIFICO_COL + product_variants.$CONTIFICO_SKU_COL + product_variants.$CONTIFICO_LOCK_COL + índice único Contifico"
 else
-  echo "ERROR: falta product_variants.contifico_id, contifico_sku o el índice único (ejecuta scripts/apply-contifico-migration.sh)" >&2
+  echo "ERROR: falta product_variants.contifico_id, contifico_sku, contifico_mapping_locked o el índice único (ejecuta scripts/apply-contifico-migration.sh)" >&2
   exit 1
 fi
 echo

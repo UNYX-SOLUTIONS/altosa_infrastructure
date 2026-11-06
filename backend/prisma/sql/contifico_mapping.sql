@@ -11,6 +11,11 @@ ALTER TABLE product_variants
 ALTER TABLE product_variants
   ADD COLUMN IF NOT EXISTS contifico_sku TEXT;
 
+-- Mapeo manual/baja explícita: el sync de Contifico no debe volver a enlazar
+-- por SKU/nombre las variantes con este flag. Se desbloquea desde el ERP.
+ALTER TABLE product_variants
+  ADD COLUMN IF NOT EXISTS contifico_mapping_locked BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Un producto de Contifico no puede estar mapeado a dos variantes de Altosa.
 -- Índice funcional para comparar sin espacios ni mayúsculas; NULL no colisiona.
 DROP INDEX IF EXISTS product_variants_contifico_id_idx;

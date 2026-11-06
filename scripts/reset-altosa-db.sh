@@ -73,10 +73,11 @@ docker exec -i "$PG_CONTAINER" pg_restore \
   --no-owner --no-privileges /tmp/altosa_reset.backup \
   2>&1 | tee /tmp/altosa_reset_restore.log || true
 
-echo "[6/8] Aplicando migraciones Meta/Kommo/Nombre de variante..."
+echo "[6/8] Aplicando migraciones Meta/Kommo/Contifico/Nombre de variante..."
 for sql in \
   "$REPO_DIR/backend/prisma/sql/meta_retailer_id.sql" \
   "$REPO_DIR/backend/prisma/sql/kommo_templates.sql" \
+  "$REPO_DIR/backend/prisma/sql/contifico_mapping.sql" \
   "$REPO_DIR/backend/prisma/sql/variant_nombre.sql" \
   "$REPO_DIR/backend/prisma/sql/product_keywords.sql"
 do
