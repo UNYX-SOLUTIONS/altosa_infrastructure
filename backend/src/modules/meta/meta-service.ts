@@ -193,6 +193,7 @@ export async function listPendingMetaItems(
 
 export interface MetaVariantSnapshot {
   productName: string;
+  variantName: string | null;
   color: string | null;
   description: string | null;
   price: number | null;
@@ -207,6 +208,7 @@ async function getVariantForMeta(variantId: number) {
     select: {
       idVariante: true,
       sku: true,
+      nombre: true,
       color: true,
       descripcion: true,
       precioUsd: true,
@@ -223,11 +225,19 @@ async function getVariantForMeta(variantId: number) {
   return variant;
 }
 
+function metaVariantName(snapshot: MetaVariantSnapshot): string {
+  return (
+    snapshot.variantName?.trim() ||
+    buildFlatName(snapshot.productName, snapshot.color)
+  );
+}
+
 function snapshotFromVariant(
   variant: Awaited<ReturnType<typeof getVariantForMeta>>
 ): MetaVariantSnapshot {
   return {
     productName: variant.producto.producto,
+    variantName: variant.nombre?.trim() || null,
     color: variant.color,
     description: variant.descripcion,
     price: variant.precioUsd === null ? null : Number(variant.precioUsd),
@@ -271,7 +281,7 @@ export async function publishVariantById(variantId: number): Promise<{
   const snapshot = snapshotFromVariant(variant);
   const published = await publishVariantToMeta({
     retailerId: variant.sku.trim(),
-    name: buildFlatName(snapshot.productName, snapshot.color),
+    name: metaVariantName(snapshot),
     description: snapshot.description,
     price: snapshot.price,
     imageUrl: snapshot.imageUrl,
@@ -320,7 +330,7 @@ export async function updateVariantInMeta(
     }
     const published = await publishVariantToMeta({
       retailerId,
-      name: buildFlatName(snapshot.productName, snapshot.color),
+      name: metaVariantName(snapshot),
       description: snapshot.description,
       price: snapshot.price,
       imageUrl: snapshot.imageUrl,
@@ -355,7 +365,7 @@ export async function updateVariantInMeta(
   }
 
   await updateMetaCatalogItem(item.id, {
-    name: buildFlatName(snapshot.productName, snapshot.color),
+    name: metaVariantName(snapshot),
     description: snapshot.description ?? undefined,
     price: snapshot.price,
     imageUrl: snapshot.imageUrl ?? item.imageUrl,
@@ -415,7 +425,7 @@ export async function republishVariantInMeta(variantId: number): Promise<{
     }
     if (existing.id) {
       await updateMetaCatalogItem(existing.id, {
-        name: buildFlatName(snapshot.productName, snapshot.color),
+        name: metaVariantName(snapshot),
         description: snapshot.description ?? undefined,
         price: snapshot.price,
         imageUrl: snapshot.imageUrl ?? existing.imageUrl,
@@ -428,7 +438,7 @@ export async function republishVariantInMeta(variantId: number): Promise<{
 
   const published = await publishVariantToMeta({
     retailerId,
-    name: buildFlatName(snapshot.productName, snapshot.color),
+    name: metaVariantName(snapshot),
     description: snapshot.description,
     price: snapshot.price,
     imageUrl: snapshot.imageUrl,

@@ -308,6 +308,7 @@ export async function importContificoProduct(input: {
 
 export interface ContificoVariantPayload {
   productName: string;
+  variantName?: string | null;
   sku: string | null;
   color: string | null;
   description: string | null;
@@ -344,7 +345,9 @@ export async function createContificoProductForVariant(
 
   const created = await createContificoProduct({
     codigo: sku,
-    nombre: buildFlatName(input.productName, input.color),
+    nombre:
+      input.variantName?.trim() ||
+      buildFlatName(input.productName, input.color),
     descripcion: input.description ?? undefined,
     categoriaNombre: input.categoryName?.trim() || 'General',
     pvp1: input.price ?? 0,
@@ -371,7 +374,9 @@ export async function updateContificoProductForVariant(
   }
 
   await updateContificoProduct(contificoId, {
-    nombre: buildFlatName(input.productName, input.color),
+    nombre:
+      input.variantName?.trim() ||
+      buildFlatName(input.productName, input.color),
     descripcion: input.description ?? '',
     ...(input.categoryName
       ? { categoriaNombre: input.categoryName }
@@ -391,3 +396,5 @@ export async function deactivateContificoProductForVariant(
   }
   await deactivateContificoProduct(contificoId);
 }
+
+

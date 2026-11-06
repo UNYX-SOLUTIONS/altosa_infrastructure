@@ -77,7 +77,8 @@ echo "[6/8] Aplicando migraciones Meta/Kommo/Nombre de variante..."
 for sql in \
   "$REPO_DIR/backend/prisma/sql/meta_retailer_id.sql" \
   "$REPO_DIR/backend/prisma/sql/kommo_templates.sql" \
-  "$REPO_DIR/backend/prisma/sql/variant_nombre.sql"
+  "$REPO_DIR/backend/prisma/sql/variant_nombre.sql" \
+  "$REPO_DIR/backend/prisma/sql/product_keywords.sql"
 do
   if [ -f "$sql" ]; then
     echo "      Aplicando $(basename "$sql")..."

@@ -60,6 +60,16 @@ else
 fi
 echo
 
+echo "--- products.palabras_clave ---"
+PRODUCT_KEYWORDS_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name='palabras_clave';")"
+if [ -n "$PRODUCT_KEYWORDS_COL" ]; then
+  echo "OK: products.$PRODUCT_KEYWORDS_COL"
+else
+  echo "ERROR: falta products.palabras_clave (ejecuta scripts/apply-product-keywords-migration.sh)" >&2
+  exit 1
+fi
+echo
+
 echo "--- kommo_templates ---"
 KOMMO_TABLE="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT to_regclass('public.kommo_templates');")"
 KOMMO_VARIANT_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='kommo_template_id';")"

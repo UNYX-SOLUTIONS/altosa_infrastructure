@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
-import { buildMeta, sendSuccess } from '../../utils/api-response';
+import { HttpError, buildMeta, sendSuccess } from '../../utils/api-response';
 import {
   createProductBodySchema,
   documentsQuerySchema,
@@ -105,7 +105,14 @@ export async function updateProduct(req: Request, res: Response): Promise<void> 
 
 export async function deleteProduct(req: Request, res: Response): Promise<void> {
   const { id } = idParamSchema.parse(req.params);
-  const producto = await catalogService.deactivateProduct(id);
+  if (req.query.permanent === 'true') {
+    throw new HttpError(
+      StatusCodes.CONFLICT,
+      'El borrado definitivo está deshabilitado. Solo se permite anular; los ítems se conservan en Meta/Contifico desactivados.',
+      'ALTOSA_PERMANENT_DELETE_DISABLED'
+    );
+  }
+  const producto = await catalogService.annulProduct(id);
   sendSuccess(res, producto);
 }
 
@@ -125,7 +132,14 @@ export async function updateVariant(req: Request, res: Response): Promise<void> 
 
 export async function deleteVariant(req: Request, res: Response): Promise<void> {
   const { id } = idParamSchema.parse(req.params);
-  const variante = await catalogService.deactivateVariant(id);
+  if (req.query.permanent === 'true') {
+    throw new HttpError(
+      StatusCodes.CONFLICT,
+      'El borrado definitivo está deshabilitado. Solo se permite anular; los ítems se conservan en Meta/Contifico desactivados.',
+      'ALTOSA_PERMANENT_DELETE_DISABLED'
+    );
+  }
+  const variante = await catalogService.annulVariant(id);
   sendSuccess(res, variante);
 }
 

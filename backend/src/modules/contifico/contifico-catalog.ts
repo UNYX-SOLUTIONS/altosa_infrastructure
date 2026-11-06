@@ -31,14 +31,48 @@ function productItemPath(id: string): string {
 }
 
 /**
- * v2 devuelve listas paginadas como objeto ({ count, next, results }) e ignora
- * el parámetro `filtro`; v1 devuelve arrays y sí filtra por nombre/código.
- * Para listar, buscar y leer categorías usamos v1. El CRUD (GET/POST/PUT)
- * sigue usando la versión configurada en CONTIFICO_API_URL.
+ * v2 devuelve listas paginadas como objeto ({ count, next, results }) y
+ * soporta `search` por nombre; v1 devuelve arrays. Para productos usamos v2
+ * (v1 no devuelve el catálogo completo); las categorías siguen por v1.
+ * El CRUD (GET/POST/PUT) usa la versión configurada en CONTIFICO_API_URL.
  */
 function v1BaseUrl(): string {
   const configured = env.CONTIFICO_API_URL.replace(/\/+$/, '');
   return /\/v2$/i.test(configured) ? configured.replace(/\/v2$/i, '/v1') : configured;
+}
+
+function v2BaseUrl(): string {
+  const configured = env.CONTIFICO_API_URL.replace(/\/+$/, '');
+  if (/\/v2$/i.test(configured)) {
+    return configured;
+  }
+  if (/\/v1$/i.test(configured)) {
+    return configured.replace(/\/v1$/i, '/v2');
+  }
+  return `${configured}/v2`;
+}
+
+type ContificoProductListResponse =
+  | ContificoProductDto[]
+  | {
+      count?: number;
+      next?: string | null;
+      previous?: string | null;
+      results?: ContificoProductDto[];
+    };
+
+function extractProducts(response: unknown): ContificoProductDto[] {
+  if (Array.isArray(response)) {
+    return response as ContificoProductDto[];
+  }
+  if (
+    response &&
+    typeof response === 'object' &&
+    Array.isArray((response as { results?: unknown }).results)
+  ) {
+    return (response as { results: ContificoProductDto[] }).results;
+  }
+  return [];
 }
 
 function mergePages(pages: ContificoProductDto[][]): ContificoProductDto[] {
@@ -51,37 +85,53 @@ function mergePages(pages: ContificoProductDto[][]): ContificoProductDto[] {
   return Array.from(byId.values());
 }
 
-async function fetchProductPages(estado?: 'A' | 'I'): Promise<ContificoProductDto[]> {
-  const pages: ContificoProductDto[][] = [];
-  const seen = new Set<string>();
+function totalProductCount(response: ContificoProductListResponse): number | null {
+  if (Array.isArray(response) || !response || typeof response !== 'object') {
+    return null;
+  }
+  const count = Number((response as { count?: unknown }).count);
+  return Number.isFinite(count) && count >= 0 ? count : null;
+}
 
-  for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const items = await contificoGet<ContificoProductDto[]>(
-      '/producto/',
-      {
-        page,
-        ...(estado ? { estado } : {}),
-      },
-      v1BaseUrl()
+async function fetchProductPages(): Promise<ContificoProductDto[]> {
+  const firstResponse = await contificoGet<ContificoProductListResponse>(
+    '/producto/',
+    { page: 1 },
+    v2BaseUrl()
+  );
+  const firstItems = extractProducts(firstResponse);
+  if (firstItems.length === 0) {
+    return [];
+  }
+
+  const count = totalProductCount(firstResponse);
+  const pageSize = firstItems.length || PAGE_SIZE;
+  const totalPages = count !== null
+    ? Math.min(MAX_PAGES, Math.max(1, Math.ceil(count / pageSize)))
+    : 1;
+
+  const pages: ContificoProductDto[][] = [firstItems];
+  const remainingPages = Array.from(
+    { length: Math.max(0, totalPages - 1) },
+    (_, index) => index + 2
+  );
+
+  // La API v2 es lenta por página; se consultan en paralelo con un límite
+  // conservador para que el sync/selector termine dentro del timeout.
+  const CONCURRENCY = 5;
+  for (let index = 0; index < remainingPages.length; index += CONCURRENCY) {
+    const chunk = remainingPages.slice(index, index + CONCURRENCY);
+    const responses = await Promise.all(
+      chunk.map((page) =>
+        contificoGet<ContificoProductListResponse>(
+          '/producto/',
+          { page },
+          v2BaseUrl()
+        )
+      )
     );
-
-    if (!Array.isArray(items) || items.length === 0) {
-      break;
-    }
-
-    const fresh = items.filter((item) => !seen.has(item.id));
-    if (fresh.length === 0) {
-      // La API no soporta paginación (devuelve lo mismo) o ya terminó.
-      break;
-    }
-
-    for (const item of fresh) {
-      seen.add(item.id);
-    }
-    pages.push(fresh);
-
-    if (items.length < PAGE_SIZE) {
-      break;
+    for (const response of responses) {
+      pages.push(extractProducts(response));
     }
   }
 
@@ -100,25 +150,19 @@ export function invalidateContificoProductsCache(): void {
 }
 
 /**
- * Obtiene el catálogo completo de Contifico. Se consultan ambos estados
- * (A/I) para que una desactivación en Contifico también se propague.
- * El dedupe por `id` tolera APIs que ignoran el parámetro `page`.
+ * Obtiene el catálogo completo de Contifico desde v2 (incluye activos e
+ * inactivos; el mapper conserva `estado` para que las desactivaciones se
+ * propaguen). El dedupe por `id` tolera APIs que ignoran `page`.
  *
- * Cache corto en memoria: health, pendientes y sync comparten la misma
- * descarga; tras crear/editar/desactivar se invalida.
+ * Cache corto en memoria: health, pendientes, selector y sync comparten la
+ * misma descarga; tras crear/editar/desactivar se invalida.
  */
 export async function fetchAllContificoProducts(): Promise<ContificoProductDto[]> {
   if (allProductsCache && allProductsCache.expiresAt > Date.now()) {
     return allProductsCache.promise;
   }
 
-  const promise = (async () => {
-    const [active, inactive] = await Promise.all([
-      fetchProductPages('A'),
-      fetchProductPages('I'),
-    ]);
-    return mergePages([active, inactive]);
-  })();
+  const promise = fetchProductPages();
 
   allProductsCache = {
     expiresAt: Date.now() + ALL_PRODUCTS_CACHE_TTL_MS,
@@ -134,7 +178,11 @@ export async function fetchAllContificoProducts(): Promise<ContificoProductDto[]
 }
 
 export async function fetchContificoProductById(id: string): Promise<ContificoProductDto> {
-  return contificoGet<ContificoProductDto>(productItemPath(id));
+  return contificoGet<ContificoProductDto>(
+    `/producto/${encodeURIComponent(id)}`,
+    undefined,
+    v2BaseUrl()
+  );
 }
 
 function normalizeSearch(value: string): string {
@@ -150,6 +198,20 @@ function normalizeSearch(value: string): string {
  * (nombre/código) y vuelve a filtrar localmente para soportar mayúsculas,
  * acentos y código de barra.
  */
+function matchesContificoTerm(
+  product: ContificoProductDto,
+  normalizedTerm: string
+): boolean {
+  const sku = normalizeSearch(product.codigo ?? '');
+  const name = normalizeSearch(product.nombre ?? '');
+  const barcode = normalizeSearch(product.codigo_barra ?? '');
+  return (
+    sku.includes(normalizedTerm) ||
+    name.includes(normalizedTerm) ||
+    barcode.includes(normalizedTerm)
+  );
+}
+
 export async function searchContificoProducts(
   query: string,
   limit = 8
@@ -158,32 +220,26 @@ export async function searchContificoProducts(
   if (!term) {
     return [];
   }
+  const normalized = normalizeSearch(term);
 
-  const items = await contificoGet<ContificoProductDto[]>(
+  // v2 busca por nombre (no por código). Primero usamos esa búsqueda rápida
+  // y, si no hay match local, caemos al catálogo completo para soportar SKU y
+  // código de barra. El catálogo completo queda cacheado 30s.
+  const quick = await contificoGet<ContificoProductListResponse>(
     '/producto/',
-    {
-      filtro: term,
-      page: 1,
-      estado: 'A',
-    },
-    v1BaseUrl()
+    { search: term, page: 1 },
+    v2BaseUrl()
   );
-  if (!Array.isArray(items)) {
-    return [];
+  const matches = extractProducts(quick).filter((product) =>
+    matchesContificoTerm(product, normalized)
+  );
+  if (matches.length > 0) {
+    return matches.slice(0, limit);
   }
 
-  const normalized = normalizeSearch(term);
-  return items
-    .filter((product) => {
-      const sku = normalizeSearch(product.codigo ?? '');
-      const name = normalizeSearch(product.nombre ?? '');
-      const barcode = normalizeSearch(product.codigo_barra ?? '');
-      return (
-        sku.includes(normalized) ||
-        name.includes(normalized) ||
-        barcode.includes(normalized)
-      );
-    })
+  const all = await fetchAllContificoProducts();
+  return all
+    .filter((product) => matchesContificoTerm(product, normalized))
     .slice(0, limit);
 }
 
@@ -408,6 +464,11 @@ export async function deactivateContificoProduct(id: string): Promise<ContificoP
   return updateContificoProduct(id, { estado: 'I' });
 }
 
+/**
+ * Borra el producto en Contifico. Si la API rechaza el DELETE (por permisos
+ * o porque la versión no lo soporta), cae a desactivarlo, que es el equivalente
+ * funcional para el catálogo.
+ */
 export function mapContificoPrice(product: ContificoProductDto): number | null {
   return toNumber(product.pvp1);
 }

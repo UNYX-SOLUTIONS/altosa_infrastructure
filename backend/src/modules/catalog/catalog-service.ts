@@ -6,8 +6,6 @@ import { HttpError } from '../../utils/api-response';
 import { buildFlatName } from '../../utils/product-naming';
 import { findMetaCatalogItem } from '../meta/meta-client';
 import {
-  deleteProductMetaItems,
-  deleteVariantFromMeta,
   publishVariantById,
   publishVariantToMeta,
   updateVariantInMeta,
@@ -31,11 +29,85 @@ import type {
   WarrantyUpdateBody,
 } from './catalog-schema';
 
+const ESTADO_ACTIVO = 1;
+const ESTADO_INACTIVO = 2;
+const ESTADO_ANULADO = 3;
+
 function toNumber(value: Prisma.Decimal | null | undefined): number | null {
   if (value === null || value === undefined) {
     return null;
   }
   return Number(value);
+}
+
+function parseKeywords(raw: string | null): string[] | null {
+  if (raw === null) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+  } catch {
+    return null;
+  }
+}
+
+function serializeKeywords(keywords: string[]): string {
+  const unique = Array.from(
+    new Set(
+      keywords
+        .map((keyword) => keyword.trim())
+        .filter((keyword) => keyword.length > 0)
+    )
+  );
+  return JSON.stringify(unique);
+}
+
+function resolveEstadoFields(input: {
+  estadoId?: number;
+  isActive?: boolean;
+}): { estadoId: number | undefined; isActive: boolean | undefined } {
+  if (input.estadoId !== undefined) {
+    return { estadoId: input.estadoId, isActive: input.estadoId === ESTADO_ACTIVO };
+  }
+  if (input.isActive !== undefined) {
+    return {
+      estadoId: input.isActive ? ESTADO_ACTIVO : ESTADO_INACTIVO,
+      isActive: input.isActive,
+    };
+  }
+  return { estadoId: undefined, isActive: undefined };
+}
+
+function resolveExternalVariantName(params: {
+  existingName: string | null;
+  oldProductName: string;
+  newProductName: string;
+  oldColor: string | null;
+  newColor: string | null;
+  inputName?: string | null;
+}): string {
+  const existing = (params.existingName ?? '').trim();
+  const inputName = (params.inputName ?? '').trim();
+  if (inputName && inputName !== existing) {
+    return inputName;
+  }
+
+  const oldAutoName = buildFlatName(
+    params.oldProductName,
+    params.oldColor
+  ).trim();
+  if (!existing || existing === oldAutoName) {
+    return buildFlatName(params.newProductName, params.newColor);
+  }
+
+  return existing;
 }
 
 function mapEstado(estado: { id: number; estado: string; permiteRag: boolean }) {
@@ -186,6 +258,7 @@ export async function listProducts(query: ProductsQuery) {
             { producto: { contains: query.search, mode: 'insensitive' } },
             { descripcion: { contains: query.search, mode: 'insensitive' } },
             { usoRecomendado: { contains: query.search, mode: 'insensitive' } },
+            { palabrasClave: { contains: query.search, mode: 'insensitive' } },
           ],
         }
       : {}),
@@ -222,6 +295,7 @@ export async function listProducts(query: ProductsQuery) {
       nombre: producto.producto,
       descripcion: producto.descripcion,
       usoRecomendado: producto.usoRecomendado,
+      keywords: parseKeywords(producto.palabrasClave),
       categoria: {
         id: producto.subcategoria.categoria.id,
         nombre: producto.subcategoria.categoria.nombre,
@@ -269,6 +343,7 @@ export async function getProductById(id: number) {
     nombre: producto.producto,
     descripcion: producto.descripcion,
     usoRecomendado: producto.usoRecomendado,
+    keywords: parseKeywords(producto.palabrasClave),
     categoria: {
       id: producto.subcategoria.categoria.id,
       nombre: producto.subcategoria.categoria.nombre,
@@ -317,6 +392,7 @@ export async function getProductByVariantSku(sku: string) {
       nombre: variante.producto.producto,
       descripcion: variante.producto.descripcion,
       usoRecomendado: variante.producto.usoRecomendado,
+      keywords: parseKeywords(variante.producto.palabrasClave),
       categoria: {
         id: variante.producto.subcategoria.categoria.id,
         nombre: variante.producto.subcategoria.categoria.nombre,
@@ -664,13 +740,6 @@ function normalizeContificoId(value: string | null | undefined): string | null {
   return normalized ? normalized : null;
 }
 
-function isContificoMissing(error: unknown): boolean {
-  return (
-    error instanceof HttpError &&
-    (error.statusCode === 404 || error.code === 'CONTIFICO_PRODUCT_NOT_FOUND')
-  );
-}
-
 async function ensureMetaRetailerIdAvailable(
   metaRetailerId: string | null | undefined,
   excludeVariantId?: number
@@ -886,19 +955,26 @@ export async function createProduct(input: CreateProductBody) {
       producto: input.nombre,
       descripcion: input.descripcion || null,
       usoRecomendado: input.usoRecomendado || null,
+      palabrasClave:
+        input.keywords !== undefined
+          ? serializeKeywords(input.keywords)
+          : null,
       estadoId: input.estadoId,
-      isActive: true,
+      isActive: input.estadoId === ESTADO_ACTIVO,
       kommoTemplateId: input.kommoTemplateId || null,
       createdAt: now,
       updatedAt: now,
       variants: {
-        create: input.variantes.map((variante) => ({
-          ...variantCreateData(variante, input.nombre),
-          estadoId: variante.estadoId ?? input.estadoId,
-          isActive: true,
-          createdAt: now,
-          updatedAt: now,
-        })),
+        create: input.variantes.map((variante) => {
+          const estadoId = variante.estadoId ?? input.estadoId;
+          return {
+            ...variantCreateData(variante, input.nombre),
+            estadoId,
+            isActive: estadoId === ESTADO_ACTIVO,
+            createdAt: now,
+            updatedAt: now,
+          };
+        }),
       },
     },
   });
@@ -914,6 +990,7 @@ export async function createProduct(input: CreateProductBody) {
       select: {
         idVariante: true,
         sku: true,
+        nombre: true,
         color: true,
         descripcion: true,
         precioUsd: true,
@@ -928,6 +1005,7 @@ export async function createProduct(input: CreateProductBody) {
       try {
         const mapping = await createContificoProductForVariant({
           productName: input.nombre,
+          variantName: variant.nombre,
           sku: variant.sku,
           color: variant.color,
           description: variant.descripcion,
@@ -986,11 +1064,13 @@ export async function updateProduct(
       idProducto: true,
       producto: true,
       descripcion: true,
+      estadoId: true,
       subcategoria: { select: { categoria: { select: { nombre: true } } } },
       variants: {
         select: {
           idVariante: true,
           sku: true,
+          nombre: true,
           color: true,
           descripcion: true,
           precioUsd: true,
@@ -1015,12 +1095,41 @@ export async function updateProduct(
     : existing.subcategoria;
   const categoryName =
     taxonomy?.categoria?.nombre ?? existing.subcategoria?.categoria?.nombre ?? null;
+  const resolvedEstado = resolveEstadoFields(input);
+  let resolvedIsActive = resolvedEstado.isActive;
+  let resolvedEstadoId = resolvedEstado.estadoId;
+
+  // Guardar un cambio en un producto anulado no lo resucita como inactivo.
+  // Solo un estado explícito o isActive=true lo restaura.
+  if (
+    input.estadoId === undefined &&
+    input.isActive === false &&
+    existing.estadoId === ESTADO_ANULADO
+  ) {
+    resolvedEstadoId = ESTADO_ANULADO;
+    resolvedIsActive = false;
+  }
 
   if (
     input.nombre !== undefined ||
     input.descripcion !== undefined ||
-    input.isActive !== undefined
+    input.isActive !== undefined ||
+    input.estadoId !== undefined ||
+    input.subcategoryId !== undefined
   ) {
+    const variantNames = new Map(
+      existing.variants.map((variant) => [
+        variant.idVariante,
+        resolveExternalVariantName({
+          existingName: variant.nombre,
+          oldProductName: existing.producto,
+          newProductName: input.nombre ?? existing.producto,
+          oldColor: variant.color,
+          newColor: variant.color,
+        }),
+      ])
+    );
+
     for (const variant of existing.variants) {
       if (!variant.contificoId) {
         continue;
@@ -1028,6 +1137,7 @@ export async function updateProduct(
       try {
         await updateContificoProductForVariant(variant.contificoId, {
           productName: input.nombre ?? existing.producto,
+          variantName: variantNames.get(variant.idVariante) ?? variant.nombre,
           sku: variant.sku,
           color: variant.color,
           description:
@@ -1035,16 +1145,13 @@ export async function updateProduct(
               ? input.descripcion
               : variant.descripcion,
           price: variant.precioUsd === null ? null : Number(variant.precioUsd),
-          isActive: input.isActive ?? variant.isActive,
+          isActive: resolvedIsActive ?? variant.isActive,
           categoryName,
         });
       } catch (error) {
-        if (!isContificoMissing(error)) {
-          throw error;
-        }
         logger.warn(
           { err: error, variantId: variant.idVariante, contificoId: variant.contificoId },
-          'Contifico ya no tiene el producto; se conserva el mapeo y la salud lo reportará'
+          'El producto se actualizó en Altosa, pero no se pudo actualizar en Contifico; la salud lo reportará'
         );
       }
     }
@@ -1053,18 +1160,26 @@ export async function updateProduct(
       if (options.skipMeta || !variant.metaRetailerId) {
         continue;
       }
-      await updateVariantInMeta(variant.idVariante, {
-        productName: input.nombre ?? existing.producto,
-        color: variant.color,
-        description:
-          input.descripcion !== undefined
-            ? input.descripcion
-            : variant.descripcion,
-        price: variant.precioUsd === null ? null : Number(variant.precioUsd),
-        imageUrl: variant.imagenUrl,
-        url: variant.urlProducto,
-        isActive: input.isActive ?? variant.isActive,
-      });
+      try {
+        await updateVariantInMeta(variant.idVariante, {
+          productName: input.nombre ?? existing.producto,
+          variantName: variantNames.get(variant.idVariante) ?? variant.nombre,
+          color: variant.color,
+          description:
+            input.descripcion !== undefined
+              ? input.descripcion
+              : variant.descripcion,
+          price: variant.precioUsd === null ? null : Number(variant.precioUsd),
+          imageUrl: variant.imagenUrl,
+          url: variant.urlProducto,
+          isActive: resolvedIsActive ?? variant.isActive,
+        });
+      } catch (error) {
+        logger.warn(
+          { err: error, variantId: variant.idVariante, metaRetailerId: variant.metaRetailerId },
+          'El producto se actualizó en Altosa, pero no se pudo actualizar en Meta; la salud lo reportará'
+        );
+      }
     }
   }
 
@@ -1082,22 +1197,166 @@ export async function updateProduct(
   if (input.nombre !== undefined) data.producto = input.nombre;
   if (input.descripcion !== undefined) data.descripcion = input.descripcion || null;
   if (input.usoRecomendado !== undefined) data.usoRecomendado = input.usoRecomendado || null;
+  if (input.keywords !== undefined) {
+    data.palabrasClave = serializeKeywords(input.keywords);
+  }
   if (input.subcategoryId !== undefined) data.idSubCategoria = input.subcategoryId;
-  if (input.estadoId !== undefined) data.estadoId = input.estadoId;
-  if (input.isActive !== undefined) data.isActive = input.isActive;
+  if (resolvedEstadoId !== undefined) data.estadoId = resolvedEstadoId;
+  if (resolvedIsActive !== undefined) data.isActive = resolvedIsActive;
   if (input.kommoTemplateId !== undefined) {
     data.kommoTemplateId = input.kommoTemplateId || null;
   }
 
   await prisma.producto.update({ where: { idProducto: id }, data });
+
+  if (
+    resolvedEstadoId === ESTADO_ANULADO ||
+    resolvedEstadoId === ESTADO_INACTIVO
+  ) {
+    await prisma.productoVariante.updateMany({
+      where: { idProducto: id },
+      data: {
+        estadoId: resolvedEstadoId,
+        isActive: false,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
   return getProductById(id);
 }
 
+type VariantExternalFields = {
+  idVariante: number;
+  sku: string | null;
+  color: string | null;
+  descripcion: string | null;
+  precioUsd: Prisma.Decimal | null;
+  imagenUrl: string | null;
+  urlProducto: string | null;
+  contificoId: string | null;
+  metaRetailerId: string | null;
+  producto: {
+    producto: string;
+    subcategoria: { categoria: { nombre: string } } | null;
+  };
+};
+
+async function deactivateVariantExternally(
+  variant: VariantExternalFields
+): Promise<void> {
+  const price =
+    variant.precioUsd === null ? null : Number(variant.precioUsd);
+  const categoryName =
+    variant.producto.subcategoria?.categoria?.nombre ?? null;
+
+  if (variant.metaRetailerId) {
+    try {
+      await updateVariantInMeta(variant.idVariante, {
+        productName: variant.producto.producto,
+        color: variant.color,
+        description: variant.descripcion,
+        price,
+        imageUrl: variant.imagenUrl,
+        url: variant.urlProducto,
+        isActive: false,
+      });
+    } catch (error) {
+      logger.warn(
+        { err: error, variantId: variant.idVariante, metaRetailerId: variant.metaRetailerId },
+        'La variante se anuló en Altosa, pero no se pudo desactivar en Meta'
+      );
+    }
+  }
+
+  if (variant.contificoId) {
+    try {
+      await updateContificoProductForVariant(variant.contificoId, {
+        productName: variant.producto.producto,
+        sku: variant.sku,
+        color: variant.color,
+        description: variant.descripcion,
+        price,
+        isActive: false,
+        categoryName,
+      });
+    } catch (error) {
+      logger.warn(
+        { err: error, variantId: variant.idVariante, contificoId: variant.contificoId },
+        'La variante se anuló en Altosa, pero no se pudo desactivar en Contifico'
+      );
+    }
+  }
+}
+
+/**
+ * Anulación lógica: el producto y sus variantes pasan a estado 3 (anulado),
+ * isActive=false. No se borran de Altosa ni de Meta/Contifico; se desactivan
+ * en los catálogos externos. El borrado definitivo solo se permite después.
+ */
+export async function annulProduct(id: number) {
+  const prisma = getPrisma();
+  const existing = await prisma.producto.findUnique({
+    where: { idProducto: id },
+    select: {
+      idProducto: true,
+      estadoId: true,
+      producto: true,
+      subcategoria: { select: { categoria: { select: { nombre: true } } } },
+      variants: {
+        select: {
+          idVariante: true,
+          sku: true,
+          color: true,
+          descripcion: true,
+          precioUsd: true,
+          imagenUrl: true,
+          urlProducto: true,
+          contificoId: true,
+          metaRetailerId: true,
+        },
+      },
+    },
+  });
+  if (!existing) {
+    throw new HttpError(
+      StatusCodes.NOT_FOUND,
+      'Producto no encontrado.',
+      'ALTOSA_PRODUCT_NOT_FOUND'
+    );
+  }
+
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.producto.update({
+      where: { idProducto: id },
+      data: { estadoId: ESTADO_ANULADO, isActive: false, updatedAt: now },
+    }),
+    prisma.productoVariante.updateMany({
+      where: { idProducto: id },
+      data: { estadoId: ESTADO_ANULADO, isActive: false, updatedAt: now },
+    }),
+  ]);
+
+  for (const variant of existing.variants) {
+    await deactivateVariantExternally({
+      ...variant,
+      producto: {
+        producto: existing.producto,
+        subcategoria: existing.subcategoria,
+      },
+    });
+  }
+
+  return getProductById(id);
+}
+
+/**
+ * Borrado definitivo: solo si el producto ya está anulado. Elimina los ítems
+ * externos (Meta/Contifico) y luego borra las filas de Altosa.
+ */
 export async function deactivateProduct(id: number) {
-  // DELETE explícito: se eliminan los ítems de Meta del producto. El toggle
-  // de isActive (updateProduct) solo actualiza availability.
-  await deleteProductMetaItems(id);
-  return updateProduct(id, { isActive: false }, { skipMeta: true });
+  return annulProduct(id);
 }
 
 export async function createVariant(productId: number, input: VariantBody) {
@@ -1123,12 +1382,13 @@ export async function createVariant(productId: number, input: VariantBody) {
   await validateVariantReferences(input);
 
   const now = new Date();
+  const variantEstadoId = input.estadoId ?? producto.estadoId;
   const created = await prisma.productoVariante.create({
     data: {
       idProducto: productId,
       ...variantCreateData(input, producto.producto),
-      estadoId: input.estadoId ?? producto.estadoId,
-      isActive: true,
+      estadoId: variantEstadoId,
+      isActive: variantEstadoId === ESTADO_ACTIVO,
       createdAt: now,
       updatedAt: now,
     },
@@ -1139,6 +1399,7 @@ export async function createVariant(productId: number, input: VariantBody) {
     try {
       const mapping = await createContificoProductForVariant({
         productName: producto.producto,
+        variantName: created.nombre,
         sku: created.sku,
         color: created.color,
         description: created.descripcion,
@@ -1196,6 +1457,7 @@ export async function updateVariant(
       descripcion: true,
       precioUsd: true,
       isActive: true,
+      estadoId: true,
       imagenUrl: true,
       urlProducto: true,
       contificoId: true,
@@ -1212,6 +1474,21 @@ export async function updateVariant(
     throw new HttpError(StatusCodes.NOT_FOUND, 'Variante no encontrada.', 'ALTOSA_VARIANT_NOT_FOUND');
   }
 
+  const resolvedEstado = resolveEstadoFields(input);
+  let resolvedIsActive = resolvedEstado.isActive;
+  let resolvedEstadoId = resolvedEstado.estadoId;
+
+  // Guardar una variante anulada sin cambiar explícitamente el estado no la
+  // devuelve a inactiva. Para restaurarla se envía estadoId 1/2 o isActive=true.
+  if (
+    input.estadoId === undefined &&
+    input.isActive === false &&
+    existing.estadoId === ESTADO_ANULADO
+  ) {
+    resolvedEstadoId = ESTADO_ANULADO;
+    resolvedIsActive = false;
+  }
+
   if (
     (existing.contificoId || existing.metaRetailerId) &&
     input.sku !== undefined &&
@@ -1224,16 +1501,28 @@ export async function updateVariant(
     );
   }
 
+  const externalVariantName = resolveExternalVariantName({
+    existingName: existing.nombre,
+    oldProductName: existing.producto.producto,
+    newProductName: existing.producto.producto,
+    oldColor: existing.color,
+    newColor: input.color ?? existing.color,
+    inputName: input.nombre,
+  });
+
   if (
     existing.contificoId &&
-    (input.color !== undefined ||
+    (input.nombre !== undefined ||
+      input.color !== undefined ||
       input.descripcion !== undefined ||
       input.precioUsd !== undefined ||
-      input.isActive !== undefined)
+      input.isActive !== undefined ||
+      input.estadoId !== undefined)
   ) {
     try {
       await updateContificoProductForVariant(existing.contificoId, {
         productName: existing.producto.producto,
+        variantName: externalVariantName,
         sku: existing.sku,
         color: input.color ?? existing.color,
         description:
@@ -1246,16 +1535,13 @@ export async function updateVariant(
             : existing.precioUsd === null
               ? null
               : Number(existing.precioUsd),
-        isActive: input.isActive ?? existing.isActive,
+        isActive: resolvedIsActive ?? existing.isActive,
         categoryName: existing.producto.subcategoria?.categoria?.nombre ?? null,
       });
     } catch (error) {
-      if (!isContificoMissing(error)) {
-        throw error;
-      }
       logger.warn(
         { err: error, variantId: existing.idVariante, contificoId: existing.contificoId },
-        'Contifico ya no tiene el producto; se conserva el mapeo y la salud lo reportará'
+        'La variante se actualizó en Altosa, pero no se pudo actualizar en Contifico; la salud lo reportará'
       );
     }
   }
@@ -1263,30 +1549,40 @@ export async function updateVariant(
   if (
     !options.skipMeta &&
     existing.metaRetailerId &&
-    (input.color !== undefined ||
+    (input.nombre !== undefined ||
+      input.color !== undefined ||
       input.descripcion !== undefined ||
       input.precioUsd !== undefined ||
       input.imagenUrl !== undefined ||
-      input.isActive !== undefined)
+      input.isActive !== undefined ||
+      input.estadoId !== undefined)
   ) {
-    await updateVariantInMeta(variantId, {
-      productName: existing.producto.producto,
-      color: input.color ?? existing.color,
-      description:
-        input.descripcion !== undefined
-          ? input.descripcion
-          : existing.descripcion,
-      price:
-        input.precioUsd !== undefined
-          ? input.precioUsd
-          : existing.precioUsd === null
-            ? null
-            : Number(existing.precioUsd),
-      imageUrl:
-        input.imagenUrl !== undefined ? input.imagenUrl : existing.imagenUrl,
-      url: existing.urlProducto,
-      isActive: input.isActive ?? existing.isActive,
-    });
+    try {
+      await updateVariantInMeta(variantId, {
+        productName: existing.producto.producto,
+        variantName: externalVariantName,
+        color: input.color ?? existing.color,
+        description:
+          input.descripcion !== undefined
+            ? input.descripcion
+            : existing.descripcion,
+        price:
+          input.precioUsd !== undefined
+            ? input.precioUsd
+            : existing.precioUsd === null
+              ? null
+              : Number(existing.precioUsd),
+        imageUrl:
+          input.imagenUrl !== undefined ? input.imagenUrl : existing.imagenUrl,
+        url: existing.urlProducto,
+        isActive: resolvedIsActive ?? existing.isActive,
+      });
+    } catch (error) {
+      logger.warn(
+        { err: error, variantId: existing.idVariante, metaRetailerId: existing.metaRetailerId },
+        'La variante se actualizó en Altosa, pero no se pudo actualizar en Meta; la salud lo reportará'
+      );
+    }
   }
 
   if (input.sku !== undefined) {
@@ -1306,6 +1602,13 @@ export async function updateVariant(
   // variante aún no tiene nombre, se genera desde producto + color.
   if (input.nombre === undefined && input.color !== undefined && !existing.nombre) {
     data.nombre = buildFlatName(existing.producto.producto, input.color ?? null);
+  }
+  if (resolvedEstadoId !== undefined) {
+    data.estadoId = resolvedEstadoId;
+    data.isActive = resolvedEstadoId === ESTADO_ACTIVO;
+  } else if (resolvedIsActive !== undefined) {
+    data.isActive = resolvedIsActive;
+    data.estadoId = resolvedIsActive ? ESTADO_ACTIVO : ESTADO_INACTIVO;
   }
   data.updatedAt = new Date();
 
@@ -1345,6 +1648,7 @@ export async function updateVariant(
     try {
       const mapping = await createContificoProductForVariant({
         productName: existing.producto.producto,
+        variantName: updated.nombre,
         sku: updated.sku,
         color: updated.color,
         description: updated.descripcion,
@@ -1378,11 +1682,48 @@ export async function updateVariant(
   return mapVariante(updated);
 }
 
+export async function annulVariant(variantId: number) {
+  const prisma = getPrisma();
+  const existing = await prisma.productoVariante.findUnique({
+    where: { idVariante: variantId },
+    select: {
+      idVariante: true,
+      sku: true,
+      color: true,
+      descripcion: true,
+      precioUsd: true,
+      imagenUrl: true,
+      urlProducto: true,
+      contificoId: true,
+      metaRetailerId: true,
+      producto: {
+        select: {
+          producto: true,
+          subcategoria: { select: { categoria: { select: { nombre: true } } } },
+        },
+      },
+    },
+  });
+  if (!existing) {
+    throw new HttpError(
+      StatusCodes.NOT_FOUND,
+      'Variante no encontrada.',
+      'ALTOSA_VARIANT_NOT_FOUND'
+    );
+  }
+
+  const updated = await prisma.productoVariante.update({
+    where: { idVariante: variantId },
+    data: { estadoId: ESTADO_ANULADO, isActive: false, updatedAt: new Date() },
+    include: VARIANT_RELATIONS,
+  });
+
+  await deactivateVariantExternally(existing);
+  return mapVariante(updated);
+}
+
 export async function deactivateVariant(variantId: number) {
-  // DELETE explícito: se elimina el ítem de Meta. Si el toggle isActive lo
-  // desactiva (sin borrar), updateVariant solo actualiza availability.
-  await deleteVariantFromMeta(variantId);
-  return updateVariant(variantId, { isActive: false }, { skipMeta: true });
+  return annulVariant(variantId);
 }
 
 // ---------------------------------------------------------------------------
@@ -1848,6 +2189,7 @@ export async function syncProducts(
           try {
             const mapping = await createContificoProductForVariant({
               productName: item.nombre,
+              variantName: savedVariant.nombre,
               sku: savedVariant.sku,
               color: savedVariant.color,
               description: savedVariant.descripcion,

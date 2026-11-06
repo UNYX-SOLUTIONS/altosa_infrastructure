@@ -86,6 +86,7 @@ model Producto {
   producto        String   @db.Text
   descripcion     String?  @db.Text
   usoRecomendado  String?  @map("uso_recomendado") @db.Text
+  palabrasClave   String?  @map("palabras_clave") @db.Text
   estadoId        Int      @map("estado_id") @db.SmallInt
   isActive        Boolean  @default(true) @map("is_active")
   kommoTemplateId String?  @map("kommo_template_id")

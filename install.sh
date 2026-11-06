@@ -159,6 +159,9 @@ bash ./scripts/apply-contifico-migration.sh
 log "Aplicando migración de nombre de variante (product_variants.nombre)"
 bash ./scripts/apply-variant-nombre-migration.sh
 
+log "Aplicando migración de palabras clave (products.palabras_clave)"
+bash ./scripts/apply-product-keywords-migration.sh
+
 log "Construyendo y levantando servicios"
 docker compose up -d --build
 
