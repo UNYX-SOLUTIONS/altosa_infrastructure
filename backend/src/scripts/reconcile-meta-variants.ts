@@ -20,6 +20,7 @@ import 'dotenv/config';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { disconnectPrisma, getPrisma } from '../config/prisma';
+import { resolveCanonicalTaxonomy } from '../modules/catalog/taxonomy';
 import { buildFlatName } from '../utils/product-naming';
 
 const META_FIELDS =
@@ -477,38 +478,6 @@ function chooseVariant(product: ProductRow, item: MetaItem): {
   return { variant: top.variant, action: 'map', detail: `color match ${top.score.toFixed(2)}` };
 }
 
-async function ensureMetaSubcategory(): Promise<number> {
-  const prisma = getPrisma();
-  let category = await prisma.categoria.findFirst({
-    where: { nombre: { equals: 'Meta', mode: 'insensitive' } },
-    select: { id: true },
-  });
-  if (!category) {
-    category = await prisma.categoria.create({
-      data: { nombre: 'Meta', updatedAt: new Date() },
-      select: { id: true },
-    });
-  }
-  let subcategory = await prisma.subcategoria.findFirst({
-    where: {
-      idCategoria: category.id,
-      nombre: { equals: 'Catálogo Meta', mode: 'insensitive' },
-    },
-    select: { id: true },
-  });
-  if (!subcategory) {
-    subcategory = await prisma.subcategoria.create({
-      data: {
-        idCategoria: category.id,
-        nombre: 'Catálogo Meta',
-        updatedAt: new Date(),
-      },
-      select: { id: true },
-    });
-  }
-  return subcategory.id;
-}
-
 async function inactiveEstadoId(): Promise<number> {
   const prisma = getPrisma();
   const inactive = await prisma.estado.findFirst({
@@ -608,7 +577,8 @@ async function createVariant(product: ProductRow, item: MetaItem, estadoId: numb
 async function createProductWithVariant(item: MetaItem, estadoId: number): Promise<ProductRow | null> {
   const prisma = getPrisma();
   const now = new Date();
-  const subcategoryId = await ensureMetaSubcategory();
+  const taxonomy = await resolveCanonicalTaxonomy({ productName: item.name });
+  const subcategoryId = taxonomy.subcategoryId;
   const name = removeColorWords(item.name);
 
   try {

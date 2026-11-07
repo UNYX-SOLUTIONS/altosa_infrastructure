@@ -9,6 +9,7 @@ import {
   normalizeLooseText,
 } from '../../utils/product-naming';
 import { resolveSyncEstados } from '../catalog/catalog-estados';
+import { resolveCanonicalTaxonomy } from '../catalog/taxonomy';
 import {
   createContificoProduct,
   fetchAllContificoProducts,
@@ -90,31 +91,12 @@ async function resolveUniqueSku(base: string): Promise<string> {
 }
 
 async function resolveTaxonomy(item: ExternalItemInput): Promise<number> {
-  const prisma = getPrisma();
-  const categoryName = item.category?.trim() || 'Catálogo externo';
-  const subcategoryName =
-    item.subcategory?.trim() || (item.source === 'meta' ? 'Meta' : 'Contifico');
-
-  const categoria =
-    (await prisma.categoria.findFirst({
-      where: { nombre: { equals: categoryName, mode: 'insensitive' } },
-    })) ??
-    (await prisma.categoria.create({
-      data: { nombre: categoryName },
-    }));
-
-  const subcategoria =
-    (await prisma.subcategoria.findFirst({
-      where: {
-        idCategoria: categoria.id,
-        nombre: { equals: subcategoryName, mode: 'insensitive' },
-      },
-    })) ??
-    (await prisma.subcategoria.create({
-      data: { idCategoria: categoria.id, nombre: subcategoryName },
-    }));
-
-  return subcategoria.id;
+  const taxonomy = await resolveCanonicalTaxonomy({
+    categoryName: item.category,
+    subcategoryName: item.subcategory,
+    productName: item.name,
+  });
+  return taxonomy.subcategoryId;
 }
 
 export interface ExternalImportResult {

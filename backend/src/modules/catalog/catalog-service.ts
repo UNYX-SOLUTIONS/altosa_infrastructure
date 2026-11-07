@@ -11,6 +11,7 @@ import {
   updateVariantInMeta,
 } from '../meta/meta-service';
 import { resolveSyncEstados } from './catalog-estados';
+import { CANONICAL_TAXONOMY, normalizeTaxonomyText, resolveCanonicalTaxonomy } from './taxonomy';
 import {
   createContificoProductForVariant,
   updateContificoProductForVariant,
@@ -411,6 +412,22 @@ export async function getProductByVariantSku(sku: string) {
   };
 }
 
+const CANONICAL_CATEGORY_ORDER = new Map(
+  (Object.keys(CANONICAL_TAXONOMY) as Array<keyof typeof CANONICAL_TAXONOMY>).map(
+    (name, index) => [normalizeTaxonomyText(name), index]
+  )
+);
+
+const CANONICAL_SUBCATEGORY_ORDER = new Map<string, number>();
+for (const [categoryName, subcategories] of Object.entries(CANONICAL_TAXONOMY)) {
+  subcategories.forEach((subcategory, index) => {
+    CANONICAL_SUBCATEGORY_ORDER.set(
+      `${normalizeTaxonomyText(categoryName)}|${normalizeTaxonomyText(subcategory)}`,
+      index
+    );
+  });
+}
+
 export async function listCategories() {
   const prisma = getPrisma();
 
@@ -421,14 +438,37 @@ export async function listCategories() {
     orderBy: { nombre: 'asc' },
   });
 
-  return categorias.map((categoria) => ({
-    id: categoria.id,
-    nombre: categoria.nombre,
-    subcategorias: categoria.subcategorias.map((subcategoria) => ({
-      id: subcategoria.id,
-      nombre: subcategoria.nombre,
-    })),
-  }));
+  categorias.sort((a, b) => {
+    const aIndex =
+      CANONICAL_CATEGORY_ORDER.get(normalizeTaxonomyText(a.nombre)) ?? 999;
+    const bIndex =
+      CANONICAL_CATEGORY_ORDER.get(normalizeTaxonomyText(b.nombre)) ?? 999;
+    return aIndex - bIndex || a.nombre.localeCompare(b.nombre);
+  });
+
+  return categorias.map((categoria) => {
+    const categoryKey = normalizeTaxonomyText(categoria.nombre);
+    const subcategorias = [...categoria.subcategorias].sort((a, b) => {
+      const aIndex =
+        CANONICAL_SUBCATEGORY_ORDER.get(
+          `${categoryKey}|${normalizeTaxonomyText(a.nombre)}`
+        ) ?? 999;
+      const bIndex =
+        CANONICAL_SUBCATEGORY_ORDER.get(
+          `${categoryKey}|${normalizeTaxonomyText(b.nombre)}`
+        ) ?? 999;
+      return aIndex - bIndex || a.nombre.localeCompare(b.nombre);
+    });
+
+    return {
+      id: categoria.id,
+      nombre: categoria.nombre,
+      subcategorias: subcategorias.map((subcategoria) => ({
+        id: subcategoria.id,
+        nombre: subcategoria.nombre,
+      })),
+    };
+  });
 }
 
 export async function listCatalogs(query: SimpleListQuery) {
@@ -1823,29 +1863,11 @@ export async function syncProducts(
   };
 
   for (const item of items) {
-    const categoria =
-      (await prisma.categoria.findFirst({
-        where: { nombre: { equals: item.categoria.trim(), mode: 'insensitive' } },
-      })) ??
-      (await prisma.categoria.create({
-        data: { nombre: item.categoria.trim(), updatedAt: now },
-      }));
-
-    const subcategoriaNombre = item.subcategoria?.trim() || 'General';
-    const subcategoria =
-      (await prisma.subcategoria.findFirst({
-        where: {
-          idCategoria: categoria.id,
-          nombre: { equals: subcategoriaNombre, mode: 'insensitive' },
-        },
-      })) ??
-      (await prisma.subcategoria.create({
-        data: {
-          idCategoria: categoria.id,
-          nombre: subcategoriaNombre,
-          updatedAt: now,
-        },
-      }));
+    const taxonomy = await resolveCanonicalTaxonomy({
+      categoryName: item.categoria,
+      subcategoryName: item.subcategoria,
+      productName: item.nombre,
+    });
 
     const estadoId =
       item.estado === 'I' ? estados.inactiveId : estados.activeId;
@@ -1893,7 +1915,7 @@ export async function syncProducts(
       const existingProduct = await prisma.producto.findFirst({
         where: {
           producto: { equals: item.nombre.trim(), mode: 'insensitive' },
-          ...(matchByName ? {} : { subcategoria: { idCategoria: categoria.id } }),
+          ...(matchByName ? {} : { subcategoria: { idCategoria: taxonomy.categoryId } }),
         },
         select: {
           idProducto: true,
@@ -1926,7 +1948,7 @@ export async function syncProducts(
     if (productId === null) {
       const created = await prisma.producto.create({
         data: {
-          idSubCategoria: subcategoria.id,
+          idSubCategoria: taxonomy.subcategoryId,
           producto: item.nombre.trim(),
           descripcion: item.descripcion?.trim() || null,
           usoRecomendado: item.usoRecomendado?.trim() || null,
@@ -1946,7 +1968,7 @@ export async function syncProducts(
               // Contifico no debe cambiar nombre, descripción ni uso. Solo se
               // permite mover la taxonomía con un update explícito del ERP.
               ...(item.updateTaxonomy
-                ? { idSubCategoria: subcategoria.id }
+                ? { idSubCategoria: taxonomy.subcategoryId }
                 : {}),
               updatedAt: now,
             }
@@ -1955,7 +1977,9 @@ export async function syncProducts(
               // La taxonomía de Altosa es curada por el equipo de IA: el sync
               // masivo de Contifico conserva categoría/subcategoría. Solo un
               // update explícito del ERP (updateTaxonomy) puede mover el producto.
-              ...(item.updateTaxonomy ? { idSubCategoria: subcategoria.id } : {}),
+              ...(item.updateTaxonomy
+                ? { idSubCategoria: taxonomy.subcategoryId }
+                : {}),
               // Si Contifico no trae descripción, no borramos el enriquecimiento
               // que ya existía en Altosa.
               ...(item.descripcion?.trim()

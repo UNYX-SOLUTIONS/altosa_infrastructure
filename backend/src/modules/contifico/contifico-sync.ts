@@ -7,6 +7,7 @@ import {
   normalizeLooseText,
 } from '../../utils/product-naming';
 import { resolveSyncEstados } from '../catalog/catalog-estados';
+import { resolveCanonicalTaxonomy } from '../catalog/taxonomy';
 import {
   fetchAllContificoProducts,
   fetchContificoCategories,
@@ -47,34 +48,13 @@ function mergeSpecs(
   return JSON.stringify({ ...base, ...incoming });
 }
 
-async function resolveTaxonomy(categoryName: string | null): Promise<number> {
-  const prisma = getPrisma();
-  const name = categoryName?.trim() || 'General';
-
-  const categoria =
-    (await prisma.categoria.findFirst({
-      where: { nombre: { equals: name, mode: 'insensitive' } },
-    })) ??
-    (await prisma.categoria.create({
-      data: { nombre: name, updatedAt: new Date() },
-    }));
-
-  const subcategoria =
-    (await prisma.subcategoria.findFirst({
-      where: {
-        idCategoria: categoria.id,
-        nombre: { equals: 'General', mode: 'insensitive' },
-      },
-    })) ??
-    (await prisma.subcategoria.create({
-      data: {
-        idCategoria: categoria.id,
-        nombre: 'General',
-        updatedAt: new Date(),
-      },
-    }));
-
-  return subcategoria.id;
+async function resolveTaxonomy(product: ContificoCanonicalProduct): Promise<number> {
+  const taxonomy = await resolveCanonicalTaxonomy({
+    categoryName: product.category,
+    subcategoryName: product.subcategory,
+    productName: product.name,
+  });
+  return taxonomy.subcategoryId;
 }
 
 async function resolveUniqueSku(base: string): Promise<string> {
@@ -322,7 +302,7 @@ export async function syncContificoCatalog(
       select: { idProducto: true, producto: true },
     });
     if (!parent) {
-      const idSubCategoria = await resolveTaxonomy(product.category);
+      const idSubCategoria = await resolveTaxonomy(product);
       parent = await prisma.producto.create({
         data: {
           idSubCategoria,
