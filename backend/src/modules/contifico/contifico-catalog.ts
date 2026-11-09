@@ -271,11 +271,6 @@ export async function resolveContificoCategoryId(
     return exact.id;
   }
 
-  const partial = all.find((category) => normalizeName(category.nombre).includes(target));
-  if (partial) {
-    return partial.id;
-  }
-
   try {
     const created = await contificoPost<ContificoCategoryDto>('/categoria/', { nombre: name.trim() });
     return created.id;

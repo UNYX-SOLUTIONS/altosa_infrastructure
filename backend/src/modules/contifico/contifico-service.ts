@@ -314,7 +314,7 @@ export interface ContificoVariantPayload {
   description: string | null;
   price: number | null;
   isActive: boolean;
-  categoryName?: string | null;
+  subcategoryName?: string | null;
 }
 export async function createContificoProductForVariant(
   input: ContificoVariantPayload
@@ -349,7 +349,7 @@ export async function createContificoProductForVariant(
       input.variantName?.trim() ||
       buildFlatName(input.productName, input.color),
     descripcion: input.description ?? undefined,
-    categoriaNombre: input.categoryName?.trim() || 'General',
+    categoriaNombre: input.subcategoryName?.trim() || 'General',
     pvp1: input.price ?? 0,
     pvpManual: (input.price ?? 0) <= 0,
     estado: 'A',
@@ -378,8 +378,8 @@ export async function updateContificoProductForVariant(
       input.variantName?.trim() ||
       buildFlatName(input.productName, input.color),
     descripcion: input.description ?? '',
-    ...(input.categoryName
-      ? { categoriaNombre: input.categoryName }
+    ...(input.subcategoryName
+      ? { categoriaNombre: input.subcategoryName }
       : {}),
     ...(input.price !== null
       ? { pvp1: input.price, pvpManual: input.price <= 0 }

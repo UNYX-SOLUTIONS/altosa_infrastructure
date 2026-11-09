@@ -1396,9 +1396,9 @@ export async function createProduct(input: CreateProductBody) {
   if (input.writeThroughContifico) {
     const taxonomy = await prisma.subcategoria.findUnique({
       where: { id: input.subcategoryId },
-      select: { categoria: { select: { nombre: true } } },
+      select: { nombre: true },
     });
-    const categoryName = taxonomy?.categoria?.nombre ?? null;
+    const subcategoryName = taxonomy?.nombre ?? null;
     const variants = await prisma.productoVariante.findMany({
       where: { idProducto: created.idProducto },
       select: {
@@ -1425,7 +1425,7 @@ export async function createProduct(input: CreateProductBody) {
           description: variant.descripcion,
           price: variant.precioUsd === null ? null : Number(variant.precioUsd),
           isActive: variant.isActive,
-          categoryName,
+          subcategoryName,
         });
         if (mapping) {
           await prisma.productoVariante.update({
@@ -1479,7 +1479,9 @@ export async function updateProduct(
       producto: true,
       descripcion: true,
       estadoId: true,
-      subcategoria: { select: { categoria: { select: { nombre: true } } } },
+      subcategoria: {
+        select: { nombre: true, categoria: { select: { nombre: true } } },
+      },
       variants: {
         select: {
           idVariante: true,
@@ -1504,11 +1506,11 @@ export async function updateProduct(
   const taxonomy = input.subcategoryId
     ? await prisma.subcategoria.findUnique({
         where: { id: input.subcategoryId },
-        select: { categoria: { select: { nombre: true } } },
+        select: { nombre: true },
       })
     : existing.subcategoria;
-  const categoryName =
-    taxonomy?.categoria?.nombre ?? existing.subcategoria?.categoria?.nombre ?? null;
+  const subcategoryName =
+    taxonomy?.nombre ?? existing.subcategoria?.nombre ?? null;
   const resolvedEstado = resolveEstadoFields(input);
   let resolvedIsActive = resolvedEstado.isActive;
   let resolvedEstadoId = resolvedEstado.estadoId;
@@ -1560,7 +1562,7 @@ export async function updateProduct(
               : variant.descripcion,
           price: variant.precioUsd === null ? null : Number(variant.precioUsd),
           isActive: resolvedIsActive ?? variant.isActive,
-          categoryName,
+          subcategoryName,
         });
       } catch (error) {
         logger.warn(
@@ -1666,7 +1668,10 @@ type VariantExternalFields = {
   metaRetailerId: string | null;
   producto: {
     producto: string;
-    subcategoria: { categoria: { nombre: string } } | null;
+    subcategoria: {
+      nombre: string;
+      categoria: { nombre: string };
+    } | null;
   };
 };
 
@@ -1675,8 +1680,7 @@ async function deactivateVariantExternally(
 ): Promise<void> {
   const price =
     variant.precioUsd === null ? null : Number(variant.precioUsd);
-  const categoryName =
-    variant.producto.subcategoria?.categoria?.nombre ?? null;
+  const subcategoryName = variant.producto.subcategoria?.nombre ?? null;
 
   if (variant.metaRetailerId) {
     try {
@@ -1706,7 +1710,7 @@ async function deactivateVariantExternally(
         description: variant.descripcion,
         price,
         isActive: false,
-        categoryName,
+        subcategoryName,
       });
     } catch (error) {
       logger.warn(
@@ -1730,7 +1734,9 @@ export async function annulProduct(id: number) {
       idProducto: true,
       estadoId: true,
       producto: true,
-      subcategoria: { select: { categoria: { select: { nombre: true } } } },
+      subcategoria: {
+        select: { nombre: true, categoria: { select: { nombre: true } } },
+      },
       variants: {
         select: {
           idVariante: true,
@@ -1796,7 +1802,9 @@ export async function createVariant(productId: number, input: VariantBody) {
       idProducto: true,
       estadoId: true,
       producto: true,
-      subcategoria: { select: { categoria: { select: { nombre: true } } } },
+      subcategoria: {
+        select: { nombre: true, categoria: { select: { nombre: true } } },
+      },
     },
   });
   if (!producto) {
@@ -1835,7 +1843,7 @@ export async function createVariant(productId: number, input: VariantBody) {
         description: created.descripcion,
         price: created.precioUsd === null ? null : Number(created.precioUsd),
         isActive: created.isActive,
-        categoryName: producto.subcategoria?.categoria?.nombre ?? null,
+        subcategoryName: producto.subcategoria?.nombre ?? null,
       });
       if (mapping) {
         await prisma.productoVariante.update({
@@ -1895,7 +1903,9 @@ export async function updateVariant(
       producto: {
         select: {
           producto: true,
-          subcategoria: { select: { categoria: { select: { nombre: true } } } },
+          subcategoria: {
+        select: { nombre: true, categoria: { select: { nombre: true } } },
+      },
         },
       },
     },
@@ -1966,7 +1976,7 @@ export async function updateVariant(
               ? null
               : Number(existing.precioUsd),
         isActive: resolvedIsActive ?? existing.isActive,
-        categoryName: existing.producto.subcategoria?.categoria?.nombre ?? null,
+        subcategoryName: existing.producto.subcategoria?.nombre ?? null,
       });
     } catch (error) {
       logger.warn(
@@ -2078,7 +2088,9 @@ export async function annulVariant(variantId: number) {
       producto: {
         select: {
           producto: true,
-          subcategoria: { select: { categoria: { select: { nombre: true } } } },
+          subcategoria: {
+        select: { nombre: true, categoria: { select: { nombre: true } } },
+      },
         },
       },
     },
@@ -2536,7 +2548,7 @@ export async function syncProducts(
                   ? null
                   : Number(savedVariant.precioUsd),
               isActive: savedVariant.isActive,
-              categoryName: item.categoria,
+              subcategoryName: item.subcategoria,
             });
             result.contifico.updated += 1;
           } catch (error) {
@@ -2566,7 +2578,7 @@ export async function syncProducts(
                   ? null
                   : Number(savedVariant.precioUsd),
               isActive: savedVariant.isActive,
-              categoryName: item.categoria,
+              subcategoryName: item.subcategoria,
             });
             if (mapping) {
               await prisma.productoVariante.update({
