@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import { HttpError, buildMeta, sendSuccess } from '../../utils/api-response';
 import {
+  categoriesQuerySchema,
   categoryCreateBodySchema,
   categoryUpdateBodySchema,
   createProductBodySchema,
@@ -42,13 +43,12 @@ export async function getProductBySku(req: Request, res: Response): Promise<void
   sendSuccess(res, result);
 }
 
-export async function listCategories(_req: Request, res: Response): Promise<void> {
-  const categorias = await catalogService.listCategories();
-  sendSuccess(res, categorias);
-}
-
-export async function listCategoriesAdmin(_req: Request, res: Response): Promise<void> {
-  const categorias = await catalogService.listCategoriesAdmin();
+export async function listCategories(req: Request, res: Response): Promise<void> {
+  const { scope } = categoriesQuerySchema.parse(req.query);
+  const categorias =
+    scope === 'admin'
+      ? await catalogService.listCategoriesAdmin()
+      : await catalogService.listCategories();
   sendSuccess(res, categorias);
 }
 

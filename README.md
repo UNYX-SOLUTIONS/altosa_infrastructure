@@ -251,7 +251,7 @@ ERP Unyx (administración, aprobación y UI)
   - Categorías visibles: `Sillas`, `Taburetes`, `Bases`, `Mesas`.
   - Subcategorías visibles: `Sillas Tapizadas`, `Sillas de Plastico`, `Sillas de Oficina`, `Sillas Bistro y exterior`, `Taburetes`, `Bases`, `Mesas`.
   - `Otros/Otros` es una categoría de sistema (`is_system=true`) oculta de los dropdowns; recibe lo que no se puede clasificar.
-  - La administración (crear/editar/activar/desactivar) se hace desde **Base de conocimiento → Categorías** en el ERP. La API expone `GET /api/v1/categories` (visibles), `GET /api/v1/categories/admin` y CRUD de categorías/subcategorías.
+  - La administración (crear/editar/activar/desactivar) se hace desde **Base de conocimiento → Categorías** en el ERP. La API expone `GET /api/v1/categories` (visibles), `GET /api/v1/categories?scope=admin` (administración) y CRUD de categorías/subcategorías.
 - **Meta (contenido)**: la tarjeta se renderiza con precio, imagen y disponibilidad del catálogo de Meta. El mapeo solo resuelve identidad; escribir contenido a Meta queda para una fase posterior (el catálogo actual parece externo, `WC-...`).
 - **`--prune`**: no se usa en cron. La desactivación normal se hace desde el ERP y se propaga vía Altosa; `--prune` es una reconciliación manual/reporte para SKUs que ya no vienen de Contifico.
 

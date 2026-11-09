@@ -21,6 +21,10 @@ export const skuParamSchema = z.object({
 const taxonomyName = z.string().trim().min(1).max(120);
 const taxonomySortOrder = z.number().int().min(0).max(1_000_000);
 
+export const categoriesQuerySchema = z.object({
+  scope: z.enum(['visible', 'admin']).default('visible'),
+});
+
 export const categoryCreateBodySchema = z.object({
   nombre: taxonomyName,
   subcategorias: z.array(taxonomyName).min(1).max(50),
