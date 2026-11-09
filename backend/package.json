@@ -17,8 +17,7 @@
     "backfill:meta-retailer-ids": "tsx src/scripts/backfill-meta-retailer-ids.ts",
     "sync:meta-mappings": "tsx src/scripts/sync-meta-mappings.ts",
     "audit:contifico-parity": "tsx src/scripts/audit-contifico-parity.ts",
-    "backfill:variant-names": "tsx src/scripts/backfill-variant-names.ts",
-    "normalize:taxonomy": "tsx src/scripts/normalize-taxonomy.ts"
+    "backfill:variant-names": "tsx src/scripts/backfill-variant-names.ts"
   },
   "dependencies": {
     "@prisma/client": "5.14.0",

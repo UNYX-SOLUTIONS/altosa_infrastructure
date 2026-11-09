@@ -11,16 +11,24 @@ import {
   updateVariantInMeta,
 } from '../meta/meta-service';
 import { resolveSyncEstados } from './catalog-estados';
-import { CANONICAL_TAXONOMY, normalizeTaxonomyText, resolveCanonicalTaxonomy } from './taxonomy';
+import {
+  normalizeTaxonomyText,
+  resolveCanonicalTaxonomy,
+  resolveTaxonomySelection,
+} from './taxonomy';
 import {
   createContificoProductForVariant,
   updateContificoProductForVariant,
 } from '../contifico/contifico-service';
 import type {
+  CategoryCreateBody,
+  CategoryUpdateBody,
   CreateProductBody,
   DocumentsQuery,
   ProductsQuery,
   SimpleListQuery,
+  SubcategoryCreateBody,
+  SubcategoryUpdateBody,
   SyncProductBody,
   UpdateProductBody,
   UpdateVariantBody,
@@ -412,63 +420,420 @@ export async function getProductByVariantSku(sku: string) {
   };
 }
 
-const CANONICAL_CATEGORY_ORDER = new Map(
-  (Object.keys(CANONICAL_TAXONOMY) as Array<keyof typeof CANONICAL_TAXONOMY>).map(
-    (name, index) => [normalizeTaxonomyText(name), index]
-  )
-);
+function taxonomyDuplicate(message: string): HttpError {
+  return new HttpError(StatusCodes.CONFLICT, message, 'TAXONOMY_DUPLICATE');
+}
 
-const CANONICAL_SUBCATEGORY_ORDER = new Map<string, number>();
-for (const [categoryName, subcategories] of Object.entries(CANONICAL_TAXONOMY)) {
-  subcategories.forEach((subcategory, index) => {
-    CANONICAL_SUBCATEGORY_ORDER.set(
-      `${normalizeTaxonomyText(categoryName)}|${normalizeTaxonomyText(subcategory)}`,
-      index
-    );
+function taxonomyInUse(message: string): HttpError {
+  return new HttpError(StatusCodes.CONFLICT, message, 'TAXONOMY_IN_USE');
+}
+
+function taxonomySystemProtected(): HttpError {
+  return new HttpError(
+    StatusCodes.CONFLICT,
+    'La categoría o subcategoría de sistema no se puede modificar.',
+    'TAXONOMY_SYSTEM_PROTECTED'
+  );
+}
+
+function taxonomyNotFound(message: string): HttpError {
+  return new HttpError(StatusCodes.NOT_FOUND, message, 'TAXONOMY_NOT_FOUND');
+}
+
+function rethrowTaxonomyPersistenceError(error: unknown): never {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === 'P2002'
+  ) {
+    throw taxonomyDuplicate('Ya existe una categoría o subcategoría con ese nombre.');
+  }
+  throw error;
+}
+
+async function assertCategoryNameAvailable(
+  nombre: string,
+  excludeId?: number
+): Promise<void> {
+  const prisma = getPrisma();
+  const normalized = normalizeTaxonomyText(nombre);
+  const categories = await prisma.categoria.findMany({
+    select: { id: true, nombre: true },
   });
+  const duplicate = categories.find(
+    (category) =>
+      category.id !== excludeId &&
+      normalizeTaxonomyText(category.nombre) === normalized
+  );
+  if (duplicate) {
+    throw taxonomyDuplicate(`Ya existe la categoría "${duplicate.nombre}".`);
+  }
+}
+
+async function assertSubcategoryNameAvailable(
+  idCategoria: number,
+  nombre: string,
+  excludeId?: number
+): Promise<void> {
+  const prisma = getPrisma();
+  const normalized = normalizeTaxonomyText(nombre);
+  const subcategories = await prisma.subcategoria.findMany({
+    where: { idCategoria },
+    select: { id: true, nombre: true },
+  });
+  const duplicate = subcategories.find(
+    (subcategory) =>
+      subcategory.id !== excludeId &&
+      normalizeTaxonomyText(subcategory.nombre) === normalized
+  );
+  if (duplicate) {
+    throw taxonomyDuplicate(
+      `Ya existe la subcategoría "${duplicate.nombre}" en esta categoría.`
+    );
+  }
+}
+
+async function nextCategorySortOrder(): Promise<number> {
+  const prisma = getPrisma();
+  const aggregate = await prisma.categoria.aggregate({
+    _max: { sortOrder: true },
+  });
+  return (aggregate._max.sortOrder ?? 0) + 1;
+}
+
+async function nextSubcategorySortOrder(idCategoria: number): Promise<number> {
+  const prisma = getPrisma();
+  const aggregate = await prisma.subcategoria.aggregate({
+    where: { idCategoria },
+    _max: { sortOrder: true },
+  });
+  return (aggregate._max.sortOrder ?? 0) + 1;
+}
+
+function mapCategoryAdmin(category: {
+  id: number;
+  nombre: string;
+  isActive: boolean;
+  isSystem: boolean;
+  sortOrder: number;
+  subcategorias: Array<{
+    id: number;
+    idCategoria: number;
+    nombre: string;
+    isActive: boolean;
+    isSystem: boolean;
+    sortOrder: number;
+    _count: { productos: number };
+  }>;
+}) {
+  return {
+    id: category.id,
+    nombre: category.nombre,
+    isActive: category.isActive,
+    isSystem: category.isSystem,
+    sortOrder: category.sortOrder,
+    productCount: category.subcategorias.reduce(
+      (total, subcategory) => total + subcategory._count.productos,
+      0
+    ),
+    subcategorias: category.subcategorias.map((subcategory) => ({
+      id: subcategory.id,
+      idCategoria: subcategory.idCategoria,
+      nombre: subcategory.nombre,
+      isActive: subcategory.isActive,
+      isSystem: subcategory.isSystem,
+      sortOrder: subcategory.sortOrder,
+      productCount: subcategory._count.productos,
+    })),
+  };
+}
+
+function mapSubcategoryAdmin(subcategory: {
+  id: number;
+  idCategoria: number;
+  nombre: string;
+  isActive: boolean;
+  isSystem: boolean;
+  sortOrder: number;
+  _count: { productos: number };
+}) {
+  return {
+    id: subcategory.id,
+    idCategoria: subcategory.idCategoria,
+    nombre: subcategory.nombre,
+    isActive: subcategory.isActive,
+    isSystem: subcategory.isSystem,
+    sortOrder: subcategory.sortOrder,
+    productCount: subcategory._count.productos,
+  };
 }
 
 export async function listCategories() {
   const prisma = getPrisma();
 
   const categorias = await prisma.categoria.findMany({
-    include: {
-      subcategorias: { orderBy: { nombre: 'asc' } },
+    where: {
+      isActive: true,
+      isSystem: false,
+      subcategorias: {
+        some: { isActive: true, isSystem: false },
+      },
     },
-    orderBy: { nombre: 'asc' },
+    include: {
+      subcategorias: {
+        where: { isActive: true, isSystem: false },
+        orderBy: [{ sortOrder: 'asc' }, { nombre: 'asc' }],
+      },
+    },
+    orderBy: [{ sortOrder: 'asc' }, { nombre: 'asc' }],
   });
 
-  categorias.sort((a, b) => {
-    const aIndex =
-      CANONICAL_CATEGORY_ORDER.get(normalizeTaxonomyText(a.nombre)) ?? 999;
-    const bIndex =
-      CANONICAL_CATEGORY_ORDER.get(normalizeTaxonomyText(b.nombre)) ?? 999;
-    return aIndex - bIndex || a.nombre.localeCompare(b.nombre);
+  return categorias.map((categoria) => ({
+    id: categoria.id,
+    nombre: categoria.nombre,
+    subcategorias: categoria.subcategorias.map((subcategoria) => ({
+      id: subcategoria.id,
+      nombre: subcategoria.nombre,
+    })),
+  }));
+}
+
+export async function listCategoriesAdmin() {
+  const prisma = getPrisma();
+
+  const categorias = await prisma.categoria.findMany({
+    include: {
+      subcategorias: {
+        orderBy: [{ sortOrder: 'asc' }, { nombre: 'asc' }],
+        include: { _count: { select: { productos: true } } },
+      },
+    },
+    orderBy: [{ sortOrder: 'asc' }, { nombre: 'asc' }],
   });
 
-  return categorias.map((categoria) => {
-    const categoryKey = normalizeTaxonomyText(categoria.nombre);
-    const subcategorias = [...categoria.subcategorias].sort((a, b) => {
-      const aIndex =
-        CANONICAL_SUBCATEGORY_ORDER.get(
-          `${categoryKey}|${normalizeTaxonomyText(a.nombre)}`
-        ) ?? 999;
-      const bIndex =
-        CANONICAL_SUBCATEGORY_ORDER.get(
-          `${categoryKey}|${normalizeTaxonomyText(b.nombre)}`
-        ) ?? 999;
-      return aIndex - bIndex || a.nombre.localeCompare(b.nombre);
+  return categorias.map(mapCategoryAdmin);
+}
+
+export async function createCategory(input: CategoryCreateBody) {
+  const prisma = getPrisma();
+  await assertCategoryNameAvailable(input.nombre);
+
+  const normalizedSubcategories = input.subcategorias.map((nombre) =>
+    nombre.trim()
+  );
+  const seenSubcategories = new Set<string>();
+  for (const nombre of normalizedSubcategories) {
+    const key = normalizeTaxonomyText(nombre);
+    if (seenSubcategories.has(key)) {
+      throw taxonomyDuplicate(
+        `La subcategoría "${nombre}" está repetida en la solicitud.`
+      );
+    }
+    seenSubcategories.add(key);
+  }
+
+  const sortOrder = await nextCategorySortOrder();
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const category = await tx.categoria.create({
+        data: {
+          nombre: input.nombre,
+          isActive: true,
+          isSystem: false,
+          sortOrder,
+        },
+      });
+      const subcategories = [];
+      for (const [index, nombre] of normalizedSubcategories.entries()) {
+        subcategories.push(
+          await tx.subcategoria.create({
+            data: {
+              idCategoria: category.id,
+              nombre,
+              isActive: true,
+              isSystem: false,
+              sortOrder: index + 1,
+            },
+          })
+        );
+      }
+      return {
+        id: category.id,
+        nombre: category.nombre,
+        isActive: category.isActive,
+        isSystem: category.isSystem,
+        sortOrder: category.sortOrder,
+        productCount: 0,
+        subcategorias: subcategories.map((subcategory) => ({
+          id: subcategory.id,
+          idCategoria: subcategory.idCategoria,
+          nombre: subcategory.nombre,
+          isActive: subcategory.isActive,
+          isSystem: subcategory.isSystem,
+          sortOrder: subcategory.sortOrder,
+          productCount: 0,
+        })),
+      };
     });
+  } catch (error) {
+    rethrowTaxonomyPersistenceError(error);
+  }
+}
 
-    return {
-      id: categoria.id,
-      nombre: categoria.nombre,
-      subcategorias: subcategorias.map((subcategoria) => ({
-        id: subcategoria.id,
-        nombre: subcategoria.nombre,
-      })),
-    };
+export async function updateCategory(id: number, input: CategoryUpdateBody) {
+  const prisma = getPrisma();
+  const existing = await prisma.categoria.findUnique({ where: { id } });
+  if (!existing) {
+    throw taxonomyNotFound('Categoría no encontrada.');
+  }
+  if (existing.isSystem) {
+    throw taxonomySystemProtected();
+  }
+  if (input.nombre !== undefined) {
+    await assertCategoryNameAvailable(input.nombre, id);
+  }
+
+  try {
+    await prisma.categoria.update({
+      where: { id },
+      data: {
+        ...(input.nombre !== undefined ? { nombre: input.nombre } : {}),
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+        updatedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    rethrowTaxonomyPersistenceError(error);
+  }
+
+  const updated = await prisma.categoria.findUniqueOrThrow({
+    where: { id },
+    include: {
+      subcategorias: {
+        orderBy: [{ sortOrder: 'asc' }, { nombre: 'asc' }],
+        include: { _count: { select: { productos: true } } },
+      },
+    },
   });
+  return mapCategoryAdmin(updated);
+}
+
+export async function deleteCategory(id: number) {
+  const prisma = getPrisma();
+  const existing = await prisma.categoria.findUnique({
+    where: { id },
+    include: { _count: { select: { subcategorias: true } } },
+  });
+  if (!existing) {
+    throw taxonomyNotFound('Categoría no encontrada.');
+  }
+  if (existing.isSystem) {
+    throw taxonomySystemProtected();
+  }
+  if (existing._count.subcategorias > 0) {
+    throw taxonomyInUse(
+      'No puedes eliminar una categoría con subcategorías. Elimina o mueve sus subcategorías primero.'
+    );
+  }
+  await prisma.categoria.delete({ where: { id } });
+  return { id };
+}
+
+export async function createSubcategory(input: SubcategoryCreateBody) {
+  const prisma = getPrisma();
+  const category = await prisma.categoria.findUnique({
+    where: { id: input.idCategoria },
+  });
+  if (!category) {
+    throw taxonomyNotFound('Categoría no encontrada.');
+  }
+  if (category.isSystem) {
+    throw taxonomySystemProtected();
+  }
+  await assertSubcategoryNameAvailable(input.idCategoria, input.nombre);
+  const sortOrder =
+    input.sortOrder ?? (await nextSubcategorySortOrder(input.idCategoria));
+
+  try {
+    const subcategory = await prisma.subcategoria.create({
+      data: {
+        idCategoria: input.idCategoria,
+        nombre: input.nombre,
+        isActive: true,
+        isSystem: false,
+        sortOrder,
+      },
+      include: { _count: { select: { productos: true } } },
+    });
+    return mapSubcategoryAdmin(subcategory);
+  } catch (error) {
+    rethrowTaxonomyPersistenceError(error);
+  }
+}
+
+export async function updateSubcategory(
+  id: number,
+  input: SubcategoryUpdateBody
+) {
+  const prisma = getPrisma();
+  const existing = await prisma.subcategoria.findUnique({ where: { id } });
+  if (!existing) {
+    throw taxonomyNotFound('Subcategoría no encontrada.');
+  }
+  if (existing.isSystem) {
+    throw taxonomySystemProtected();
+  }
+  if (input.nombre !== undefined) {
+    await assertSubcategoryNameAvailable(
+      existing.idCategoria,
+      input.nombre,
+      id
+    );
+  }
+
+  try {
+    await prisma.subcategoria.update({
+      where: { id },
+      data: {
+        ...(input.nombre !== undefined ? { nombre: input.nombre } : {}),
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+        updatedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    rethrowTaxonomyPersistenceError(error);
+  }
+
+  const updated = await prisma.subcategoria.findUniqueOrThrow({
+    where: { id },
+    include: { _count: { select: { productos: true } } },
+  });
+  return mapSubcategoryAdmin(updated);
+}
+
+export async function deleteSubcategory(id: number) {
+  const prisma = getPrisma();
+  const existing = await prisma.subcategoria.findUnique({
+    where: { id },
+    include: { _count: { select: { productos: true } } },
+  });
+  if (!existing) {
+    throw taxonomyNotFound('Subcategoría no encontrada.');
+  }
+  if (existing.isSystem) {
+    throw taxonomySystemProtected();
+  }
+  if (existing._count.productos > 0) {
+    throw taxonomyInUse(
+      'No puedes eliminar una subcategoría con productos. Reasigna esos productos primero.'
+    );
+  }
+  await prisma.subcategoria.delete({ where: { id } });
+  return { id };
 }
 
 export async function listCatalogs(query: SimpleListQuery) {
@@ -1863,11 +2228,16 @@ export async function syncProducts(
   };
 
   for (const item of items) {
-    const taxonomy = await resolveCanonicalTaxonomy({
-      categoryName: item.categoria,
-      subcategoryName: item.subcategoria,
-      productName: item.nombre,
-    });
+    const taxonomy = item.updateTaxonomy
+      ? await resolveTaxonomySelection({
+          categoryName: item.categoria,
+          subcategoryName: item.subcategoria,
+        })
+      : await resolveCanonicalTaxonomy({
+          categoryName: item.categoria,
+          subcategoryName: item.subcategoria,
+          productName: item.nombre,
+        });
 
     const estadoId =
       item.estado === 'I' ? estados.inactiveId : estados.activeId;

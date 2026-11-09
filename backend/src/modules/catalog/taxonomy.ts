@@ -13,9 +13,24 @@ export const CANONICAL_TAXONOMY = {
   Otros: ['Otros'],
 } as const;
 
+export const VISIBLE_TAXONOMY = {
+  Sillas: CANONICAL_TAXONOMY.Sillas,
+  Taburetes: CANONICAL_TAXONOMY.Taburetes,
+  Bases: CANONICAL_TAXONOMY.Bases,
+  Mesas: CANONICAL_TAXONOMY.Mesas,
+} as const;
+
 export type CanonicalCategory = keyof typeof CANONICAL_TAXONOMY;
 export type CanonicalSubcategory =
   (typeof CANONICAL_TAXONOMY)[CanonicalCategory][number];
+export type VisibleCategory = keyof typeof VISIBLE_TAXONOMY;
+
+export const VISIBLE_CATEGORY_NAMES = Object.keys(
+  VISIBLE_TAXONOMY
+) as VisibleCategory[];
+
+export const SYSTEM_FALLBACK_CATEGORY = 'Otros' as const;
+export const SYSTEM_FALLBACK_SUBCATEGORY = 'Otros' as const;
 
 export interface TaxonomyInput {
   categoryName?: string | null;
@@ -33,6 +48,11 @@ export interface ResolvedTaxonomy extends CanonicalTaxonomy {
   subcategoryId: number;
 }
 
+export interface TaxonomySelection {
+  categoryId: number;
+  subcategoryId: number;
+}
+
 const TARGETS: Record<string, CanonicalTaxonomy> = {
   sillasTapizadas: { category: 'Sillas', subcategory: 'Sillas Tapizadas' },
   sillasPlastico: { category: 'Sillas', subcategory: 'Sillas de Plastico' },
@@ -44,7 +64,32 @@ const TARGETS: Record<string, CanonicalTaxonomy> = {
   otros: { category: 'Otros', subcategory: 'Otros' },
 };
 
-const CATEGORY_NAMES = Object.keys(CANONICAL_TAXONOMY) as CanonicalCategory[];
+const ALL_CATEGORY_NAMES = Object.keys(
+  CANONICAL_TAXONOMY
+) as CanonicalCategory[];
+
+function canonicalCategory(
+  value: string | null | undefined
+): CanonicalCategory | null {
+  const normalized = normalizeTaxonomyText(value);
+  return (
+    ALL_CATEGORY_NAMES.find(
+      (category) => normalizeTaxonomyText(category) === normalized
+    ) ?? null
+  );
+}
+
+function canonicalSubcategory(
+  category: CanonicalCategory,
+  value: string | null | undefined
+): CanonicalSubcategory | null {
+  const normalized = normalizeTaxonomyText(value);
+  return (
+    CANONICAL_TAXONOMY[category].find(
+      (subcategory) => normalizeTaxonomyText(subcategory) === normalized
+    ) ?? null
+  );
+}
 
 const ACCESSORY_PATTERN =
   /REPUESTO|KIT ADAPTADOR|LAVACABELLO|LAVACABEZAS|CALENTADOR|CAMILLA|ARO LUZ|ASISTENTE|PULIDOR|SECADOR|VAPORIZADOR|LETRERO|PUPO|ESPEJO|EXTENSION|BIBLIOTECA|LIBRERO|ESTANTE|BASURERO|ZAPATO/;
@@ -65,27 +110,6 @@ export function normalizeTaxonomyText(value: string | null | undefined): string 
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, ' ')
     .trim();
-}
-
-function canonicalCategory(value: string | null | undefined): CanonicalCategory | null {
-  const normalized = normalizeTaxonomyText(value);
-  return (
-    CATEGORY_NAMES.find(
-      (category) => normalizeTaxonomyText(category) === normalized
-    ) ?? null
-  );
-}
-
-function canonicalSubcategory(
-  category: CanonicalCategory,
-  value: string | null | undefined
-): CanonicalSubcategory | null {
-  const normalized = normalizeTaxonomyText(value);
-  return (
-    CANONICAL_TAXONOMY[category].find(
-      (subcategory) => normalizeTaxonomyText(subcategory) === normalized
-    ) ?? null
-  );
 }
 
 function categoryFromPrefix(name: string): CanonicalCategory | null {
@@ -304,17 +328,42 @@ export function classifyTaxonomy(input: TaxonomyInput): CanonicalTaxonomy {
   );
 }
 
-async function ensureCategory(name: CanonicalCategory): Promise<number> {
+interface EnsureTaxonomyOptions {
+  isSystem?: boolean;
+  sortOrder?: number;
+}
+
+async function ensureCategory(
+  name: CanonicalCategory,
+  options: EnsureTaxonomyOptions = {}
+): Promise<number> {
   const prisma = getPrisma();
   const existing = await prisma.categoria.findFirst({
     where: { nombre: { equals: name, mode: 'insensitive' } },
-    select: { id: true },
+    select: { id: true, isSystem: true },
   });
   if (existing) {
+    if (options.isSystem && !existing.isSystem) {
+      await prisma.categoria.update({
+        where: { id: existing.id },
+        data: {
+          isSystem: true,
+          isActive: true,
+          ...(options.sortOrder !== undefined
+            ? { sortOrder: options.sortOrder }
+            : {}),
+        },
+      });
+    }
     return existing.id;
   }
   const created = await prisma.categoria.create({
-    data: { nombre: name },
+    data: {
+      nombre: name,
+      isSystem: options.isSystem ?? false,
+      isActive: true,
+      sortOrder: options.sortOrder ?? 0,
+    },
     select: { id: true },
   });
   return created.id;
@@ -322,7 +371,8 @@ async function ensureCategory(name: CanonicalCategory): Promise<number> {
 
 async function ensureSubcategory(
   categoryId: number,
-  name: CanonicalSubcategory
+  name: CanonicalSubcategory,
+  options: EnsureTaxonomyOptions = {}
 ): Promise<number> {
   const prisma = getPrisma();
   const existing = await prisma.subcategoria.findFirst({
@@ -330,13 +380,31 @@ async function ensureSubcategory(
       idCategoria: categoryId,
       nombre: { equals: name, mode: 'insensitive' },
     },
-    select: { id: true },
+    select: { id: true, isSystem: true },
   });
   if (existing) {
+    if (options.isSystem && !existing.isSystem) {
+      await prisma.subcategoria.update({
+        where: { id: existing.id },
+        data: {
+          isSystem: true,
+          isActive: true,
+          ...(options.sortOrder !== undefined
+            ? { sortOrder: options.sortOrder }
+            : {}),
+        },
+      });
+    }
     return existing.id;
   }
   const created = await prisma.subcategoria.create({
-    data: { idCategoria: categoryId, nombre: name },
+    data: {
+      idCategoria: categoryId,
+      nombre: name,
+      isSystem: options.isSystem ?? false,
+      isActive: true,
+      sortOrder: options.sortOrder ?? 0,
+    },
     select: { id: true },
   });
   return created.id;
@@ -349,36 +417,109 @@ export function taxonomyKey(
   return `${normalizeTaxonomyText(category)}|${normalizeTaxonomyText(subcategory)}`;
 }
 
-export async function loadCanonicalTaxonomyIds(): Promise<Map<string, number>> {
-  const prisma = getPrisma();
-  const categories = await prisma.categoria.findMany({
-    include: { subcategorias: { select: { id: true, nombre: true } } },
-  });
-  const ids = new Map<string, number>();
-  for (const category of categories) {
-    const categoryName = canonicalCategory(category.nombre);
-    if (!categoryName) {
-      continue;
-    }
-    for (const subcategory of category.subcategorias) {
-      const subcategoryName = canonicalSubcategory(categoryName, subcategory.nombre);
-      if (subcategoryName) {
-        ids.set(taxonomyKey(categoryName, subcategoryName), subcategory.id);
-      }
-    }
+function canonicalOrder(target: CanonicalTaxonomy): {
+  category: number;
+  subcategory: number;
+} {
+  if (target.category === SYSTEM_FALLBACK_CATEGORY) {
+    return { category: VISIBLE_CATEGORY_NAMES.length + 1, subcategory: 1 };
   }
-  return ids;
+  const categoryIndex = VISIBLE_CATEGORY_NAMES.indexOf(target.category);
+  const subcategories = VISIBLE_TAXONOMY[target.category] as readonly string[];
+  return {
+    category: categoryIndex + 1,
+    subcategory: subcategories.indexOf(target.subcategory) + 1,
+  };
+}
+
+export async function resolveTaxonomySelection(input: {
+  categoryName: string;
+  subcategoryName?: string | null;
+}): Promise<TaxonomySelection> {
+  const prisma = getPrisma();
+  const categoryName = input.categoryName.trim();
+  const subcategoryName = input.subcategoryName?.trim() || 'General';
+
+  let category = await prisma.categoria.findFirst({
+    where: { nombre: { equals: categoryName, mode: 'insensitive' } },
+    select: { id: true },
+  });
+  if (!category) {
+    const aggregate = await prisma.categoria.aggregate({
+      _max: { sortOrder: true },
+    });
+    category = await prisma.categoria.create({
+      data: {
+        nombre: categoryName,
+        isActive: true,
+        isSystem: false,
+        sortOrder: (aggregate._max.sortOrder ?? 0) + 1,
+      },
+      select: { id: true },
+    });
+  }
+
+  let subcategory = await prisma.subcategoria.findFirst({
+    where: {
+      idCategoria: category.id,
+      nombre: { equals: subcategoryName, mode: 'insensitive' },
+    },
+    select: { id: true },
+  });
+  if (!subcategory) {
+    const aggregate = await prisma.subcategoria.aggregate({
+      where: { idCategoria: category.id },
+      _max: { sortOrder: true },
+    });
+    subcategory = await prisma.subcategoria.create({
+      data: {
+        idCategoria: category.id,
+        nombre: subcategoryName,
+        isActive: true,
+        isSystem: false,
+        sortOrder: (aggregate._max.sortOrder ?? 0) + 1,
+      },
+      select: { id: true },
+    });
+  }
+
+  return {
+    categoryId: category.id,
+    subcategoryId: subcategory.id,
+  };
 }
 
 export async function ensureCanonicalTaxonomy(): Promise<Map<string, number>> {
   const ids = new Map<string, number>();
-  for (const category of CATEGORY_NAMES) {
-    const categoryId = await ensureCategory(category);
-    for (const subcategory of CANONICAL_TAXONOMY[category]) {
-      const subcategoryId = await ensureSubcategory(categoryId, subcategory);
+  for (const [index, category] of VISIBLE_CATEGORY_NAMES.entries()) {
+    const categoryId = await ensureCategory(category, {
+      isSystem: false,
+      sortOrder: index + 1,
+    });
+    for (const [subIndex, subcategory] of VISIBLE_TAXONOMY[
+      category
+    ].entries()) {
+      const subcategoryId = await ensureSubcategory(categoryId, subcategory, {
+        isSystem: false,
+        sortOrder: subIndex + 1,
+      });
       ids.set(taxonomyKey(category, subcategory), subcategoryId);
     }
   }
+
+  const systemCategoryId = await ensureCategory(SYSTEM_FALLBACK_CATEGORY, {
+    isSystem: true,
+    sortOrder: VISIBLE_CATEGORY_NAMES.length + 1,
+  });
+  const systemSubcategoryId = await ensureSubcategory(
+    systemCategoryId,
+    SYSTEM_FALLBACK_SUBCATEGORY,
+    { isSystem: true, sortOrder: 1 }
+  );
+  ids.set(
+    taxonomyKey(SYSTEM_FALLBACK_CATEGORY, SYSTEM_FALLBACK_SUBCATEGORY),
+    systemSubcategoryId
+  );
   return ids;
 }
 
@@ -386,8 +527,20 @@ export async function resolveCanonicalTaxonomy(
   input: TaxonomyInput
 ): Promise<ResolvedTaxonomy> {
   const target = classifyTaxonomy(input);
-  const categoryId = await ensureCategory(target.category);
-  const subcategoryId = await ensureSubcategory(categoryId, target.subcategory);
+  const order = canonicalOrder(target);
+  const isSystem = target.category === SYSTEM_FALLBACK_CATEGORY;
+  const categoryId = await ensureCategory(target.category, {
+    isSystem,
+    sortOrder: order.category,
+  });
+  const subcategoryId = await ensureSubcategory(
+    categoryId,
+    target.subcategory,
+    {
+      isSystem,
+      sortOrder: order.subcategory,
+    }
+  );
   return {
     ...target,
     categoryId,

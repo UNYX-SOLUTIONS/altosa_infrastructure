@@ -2,12 +2,16 @@ import type { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import { HttpError, buildMeta, sendSuccess } from '../../utils/api-response';
 import {
+  categoryCreateBodySchema,
+  categoryUpdateBodySchema,
   createProductBodySchema,
   documentsQuerySchema,
   idParamSchema,
   productsQuerySchema,
   simpleListQuerySchema,
   skuParamSchema,
+  subcategoryCreateBodySchema,
+  subcategoryUpdateBodySchema,
   syncDeactivateBodySchema,
   syncProductsBodySchema,
   updateProductBodySchema,
@@ -41,6 +45,49 @@ export async function getProductBySku(req: Request, res: Response): Promise<void
 export async function listCategories(_req: Request, res: Response): Promise<void> {
   const categorias = await catalogService.listCategories();
   sendSuccess(res, categorias);
+}
+
+export async function listCategoriesAdmin(_req: Request, res: Response): Promise<void> {
+  const categorias = await catalogService.listCategoriesAdmin();
+  sendSuccess(res, categorias);
+}
+
+export async function createCategory(req: Request, res: Response): Promise<void> {
+  const input = categoryCreateBodySchema.parse(req.body);
+  const categoria = await catalogService.createCategory(input);
+  sendSuccess(res, categoria, undefined, StatusCodes.CREATED);
+}
+
+export async function updateCategory(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const input = categoryUpdateBodySchema.parse(req.body);
+  const categoria = await catalogService.updateCategory(id, input);
+  sendSuccess(res, categoria);
+}
+
+export async function deleteCategory(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const result = await catalogService.deleteCategory(id);
+  sendSuccess(res, result);
+}
+
+export async function createSubcategory(req: Request, res: Response): Promise<void> {
+  const input = subcategoryCreateBodySchema.parse(req.body);
+  const subcategoria = await catalogService.createSubcategory(input);
+  sendSuccess(res, subcategoria, undefined, StatusCodes.CREATED);
+}
+
+export async function updateSubcategory(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const input = subcategoryUpdateBodySchema.parse(req.body);
+  const subcategoria = await catalogService.updateSubcategory(id, input);
+  sendSuccess(res, subcategoria);
+}
+
+export async function deleteSubcategory(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const result = await catalogService.deleteSubcategory(id);
+  sendSuccess(res, result);
 }
 
 export async function listCatalogs(req: Request, res: Response): Promise<void> {

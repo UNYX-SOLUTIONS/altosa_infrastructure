@@ -79,7 +79,8 @@ for sql in \
   "$REPO_DIR/backend/prisma/sql/kommo_templates.sql" \
   "$REPO_DIR/backend/prisma/sql/contifico_mapping.sql" \
   "$REPO_DIR/backend/prisma/sql/variant_nombre.sql" \
-  "$REPO_DIR/backend/prisma/sql/product_keywords.sql"
+  "$REPO_DIR/backend/prisma/sql/product_keywords.sql" \
+  "$REPO_DIR/backend/prisma/sql/taxonomy_admin.sql"
 do
   if [ -f "$sql" ]; then
     echo "      Aplicando $(basename "$sql")..."

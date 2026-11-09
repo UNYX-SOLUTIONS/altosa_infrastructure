@@ -43,6 +43,9 @@ model Estado {
 model Categoria {
   id        Int      @id @default(autoincrement()) @map("id_categoria")
   nombre    String   @unique @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  isSystem  Boolean  @default(false) @map("is_system")
+  sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
@@ -55,6 +58,9 @@ model Subcategoria {
   id          Int      @id @default(autoincrement()) @map("id_sub_categoria")
   idCategoria Int      @map("id_categoria")
   nombre      String   @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  isSystem    Boolean  @default(false) @map("is_system")
+  sortOrder   Int      @default(0) @map("sort_order")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 

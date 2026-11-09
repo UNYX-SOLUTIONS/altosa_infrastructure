@@ -247,10 +247,11 @@ ERP Unyx (administración, aprobación y UI)
 - **Meta Catalog** identifica cada ítem con su propio `retailer_id` (ej. `WC-240482`). `product_variants.meta_retailer_id` guarda ese mapeo; n8n usa `COALESCE(meta_retailer_id, sku)`.
 - **Mapeo manual vs sync**: `meta_mapping_locked = true` marca un mapeo hecho desde la UI o con backfill. El sync y el backfill omiten esas variantes (salvo `--force` en el backfill). Asignar o quitar desde la UI deja la variante bloqueada; "Restaurar sync automático" la desbloquea y deja `meta_retailer_id = NULL`.
 - **Keywords**: se editan en el ERP, pero Altosa no tiene columna ni el workflow las usa todavía. Si la IA debe buscar por keywords, hay que mapearlas.
-- **Subcategoría/taxonomía**: el ERP puede moverla; el sync la propaga a Altosa con `updateTaxonomy` solo cuando cambia explícitamente, y el sync masivo de Contifico no la pisa. Altosa normaliza toda categoría entrante a la taxonomía canónica:
-  - Categorías: `Sillas`, `Taburetes`, `Bases`, `Mesas`, `Otros`.
-  - Subcategorías: `Sillas Tapizadas`, `Sillas de Plastico`, `Sillas de Oficina`, `Sillas Bistro y exterior`, `Taburetes`, `Bases`, `Mesas`, `Otros`.
-  - Lo desconocido cae en `Otros / Otros`. Para limpiar datos históricos: `bash scripts/normalize-taxonomy.sh` (dry-run) y luego `--apply`.
+- **Subcategoría/taxonomía**: el ERP puede moverla; el sync la propaga a Altosa con `updateTaxonomy` solo cuando cambia explícitamente, y el sync masivo de Contifico no la pisa. La migración `taxonomy_admin.sql` agrega `is_active`, `is_system`, `sort_order`. Altosa normaliza toda categoría entrante a la taxonomía:
+  - Categorías visibles: `Sillas`, `Taburetes`, `Bases`, `Mesas`.
+  - Subcategorías visibles: `Sillas Tapizadas`, `Sillas de Plastico`, `Sillas de Oficina`, `Sillas Bistro y exterior`, `Taburetes`, `Bases`, `Mesas`.
+  - `Otros/Otros` es una categoría de sistema (`is_system=true`) oculta de los dropdowns; recibe lo que no se puede clasificar.
+  - La administración (crear/editar/activar/desactivar) se hace desde **Catálogos IA** en el ERP. La API expone `GET /api/v1/categories` (visibles), `GET /api/v1/categories/admin` y CRUD de categorías/subcategorías.
 - **Meta (contenido)**: la tarjeta se renderiza con precio, imagen y disponibilidad del catálogo de Meta. El mapeo solo resuelve identidad; escribir contenido a Meta queda para una fase posterior (el catálogo actual parece externo, `WC-...`).
 - **`--prune`**: no se usa en cron. La desactivación normal se hace desde el ERP y se propaga vía Altosa; `--prune` es una reconciliación manual/reporte para SKUs que ya no vienen de Contifico.
 
@@ -270,17 +271,9 @@ ERP Unyx (administración, aprobación y UI)
 | Precio/imagen/disponibilidad de la tarjeta Meta | Meta | Pendiente de fase de contenido Meta |
 
 
-### Normalizar la taxonomía
+### Administrar la taxonomía
 
-Altosa crea/actualiza productos con la taxonomía canónica. Los datos históricos se pueden remapear y las categorías/subcategorías vacías no canónicas se eliminan con:
-
-```bash
-cd /docker/altosa_infrastructure
-bash scripts/normalize-taxonomy.sh              # dry-run + reporte
-bash scripts/normalize-taxonomy.sh --apply      # aplica y purga vacías
-```
-
-Reporte: `data/taxonomy-normalization.csv` y `data/taxonomy-normalization-summary.json`.
+La taxonomía se administra desde **Catálogos IA** en el ERP: crear categoría con su primera subcategoría, editar nombres, activar/desactivar y eliminar solo si no tiene productos. `Otros/Otros` queda como categoría de sistema oculta para imports no clasificados.
 
 ### Sincronizar el mapeo Meta -> Altosa
 

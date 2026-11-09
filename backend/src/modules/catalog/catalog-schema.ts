@@ -18,6 +18,32 @@ export const skuParamSchema = z.object({
   sku: z.string().trim().min(1).max(120),
 });
 
+const taxonomyName = z.string().trim().min(1).max(120);
+const taxonomySortOrder = z.number().int().min(0).max(1_000_000);
+
+export const categoryCreateBodySchema = z.object({
+  nombre: taxonomyName,
+  subcategorias: z.array(taxonomyName).min(1).max(50),
+});
+
+export const categoryUpdateBodySchema = z.object({
+  nombre: taxonomyName.optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: taxonomySortOrder.optional(),
+});
+
+export const subcategoryCreateBodySchema = z.object({
+  idCategoria: z.number().int().positive(),
+  nombre: taxonomyName,
+  sortOrder: taxonomySortOrder.optional(),
+});
+
+export const subcategoryUpdateBodySchema = z.object({
+  nombre: taxonomyName.optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: taxonomySortOrder.optional(),
+});
+
 export const productsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -194,6 +220,11 @@ export type VariantBody = z.infer<typeof variantBodySchema>;
 export type UpdateVariantBody = z.infer<typeof updateVariantBodySchema>;
 export type CreateProductBody = z.infer<typeof createProductBodySchema>;
 export type UpdateProductBody = z.infer<typeof updateProductBodySchema>;
+
+export type CategoryCreateBody = z.infer<typeof categoryCreateBodySchema>;
+export type CategoryUpdateBody = z.infer<typeof categoryUpdateBodySchema>;
+export type SubcategoryCreateBody = z.infer<typeof subcategoryCreateBodySchema>;
+export type SubcategoryUpdateBody = z.infer<typeof subcategoryUpdateBodySchema>;
 
 export type ProductsQuery = z.infer<typeof productsQuerySchema>;
 export type DocumentsQuery = z.infer<typeof documentsQuerySchema>;

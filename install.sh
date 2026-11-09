@@ -162,6 +162,9 @@ bash ./scripts/apply-variant-nombre-migration.sh
 log "Aplicando migración de palabras clave (products.palabras_clave)"
 bash ./scripts/apply-product-keywords-migration.sh
 
+log "Aplicando migración de administración de taxonomía"
+bash ./scripts/apply-taxonomy-admin-migration.sh
+
 log "Construyendo y levantando servicios"
 docker compose up -d --build
 
