@@ -78,6 +78,8 @@ services:
       CONTIFICO_API_URL: ${CONTIFICO_API_URL:-https://api.contifico.com/sistema/api/v1}
       CONTIFICO_API_KEY: ${CONTIFICO_API_KEY:-}
       CONTIFICO_API_TOKEN: ${CONTIFICO_API_TOKEN:-}
+      CONTIFICO_CUENTA_VENTA: ${CONTIFICO_CUENTA_VENTA:-}
+      CONTIFICO_CUENTA_INVENTARIO: ${CONTIFICO_CUENTA_INVENTARIO:-}
     volumes:
       - uploads_data:/data/uploads
     depends_on:

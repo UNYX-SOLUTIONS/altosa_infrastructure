@@ -216,6 +216,7 @@ function mapVariante(variante: VarianteConRelaciones) {
     nombre: variante.nombre,
     descripcion: variante.descripcion,
     precioUsd: toNumber(variante.precioUsd),
+    porcentajeIva: variante.porcentajeIva,
     imagenUrl: variante.imagenUrl,
     urlProducto: variante.urlProducto,
     material: variante.material,
@@ -1251,6 +1252,7 @@ function variantCreateData(input: VariantBody, productName: string) {
     color: input.color || null,
     descripcion: input.descripcion || null,
     precioUsd: input.precioUsd ?? null,
+    porcentajeIva: input.porcentajeIva ?? 15,
     material: input.material || null,
     tapizado: input.tapizado || null,
     estructura: input.estructura || null,
@@ -1295,6 +1297,7 @@ function variantUpdateData(input: UpdateVariantBody): Prisma.ProductoVarianteUnc
   if (input.color !== undefined) data.color = input.color || null;
   if (input.descripcion !== undefined) data.descripcion = input.descripcion || null;
   if (input.precioUsd !== undefined) data.precioUsd = input.precioUsd;
+  if (input.porcentajeIva !== undefined) data.porcentajeIva = input.porcentajeIva;
   if (input.material !== undefined) data.material = input.material || null;
   if (input.tapizado !== undefined) data.tapizado = input.tapizado || null;
   if (input.estructura !== undefined) data.estructura = input.estructura || null;
@@ -1408,6 +1411,7 @@ export async function createProduct(input: CreateProductBody) {
         color: true,
         descripcion: true,
         precioUsd: true,
+        porcentajeIva: true,
         isActive: true,
         contificoId: true,
       },
@@ -1424,6 +1428,7 @@ export async function createProduct(input: CreateProductBody) {
           color: variant.color,
           description: variant.descripcion,
           price: variant.precioUsd === null ? null : Number(variant.precioUsd),
+          porcentajeIva: variant.porcentajeIva,
           isActive: variant.isActive,
           subcategoryName,
         });
@@ -1842,6 +1847,7 @@ export async function createVariant(productId: number, input: VariantBody) {
         color: created.color,
         description: created.descripcion,
         price: created.precioUsd === null ? null : Number(created.precioUsd),
+        porcentajeIva: created.porcentajeIva,
         isActive: created.isActive,
         subcategoryName: producto.subcategoria?.nombre ?? null,
       });
@@ -1894,6 +1900,7 @@ export async function updateVariant(
       nombre: true,
       descripcion: true,
       precioUsd: true,
+      porcentajeIva: true,
       isActive: true,
       estadoId: true,
       imagenUrl: true,
@@ -1956,6 +1963,7 @@ export async function updateVariant(
       input.color !== undefined ||
       input.descripcion !== undefined ||
       input.precioUsd !== undefined ||
+      input.porcentajeIva !== undefined ||
       input.isActive !== undefined ||
       input.estadoId !== undefined)
   ) {
@@ -1975,6 +1983,7 @@ export async function updateVariant(
             : existing.precioUsd === null
               ? null
               : Number(existing.precioUsd),
+        porcentajeIva: input.porcentajeIva ?? existing.porcentajeIva,
         isActive: resolvedIsActive ?? existing.isActive,
         subcategoryName: existing.producto.subcategoria?.nombre ?? null,
       });
@@ -2115,6 +2124,114 @@ export async function annulVariant(variantId: number) {
 
 export async function deactivateVariant(variantId: number) {
   return annulVariant(variantId);
+}
+
+// ---------------------------------------------------------------------------
+// Borrado definitivo (solo ítems anulados y sin mapeos externos)
+// ---------------------------------------------------------------------------
+
+export async function deleteVariantPermanently(variantId: number) {
+  const prisma = getPrisma();
+  const existing = await prisma.productoVariante.findUnique({
+    where: { idVariante: variantId },
+    select: {
+      idVariante: true,
+      sku: true,
+      estadoId: true,
+      contificoId: true,
+      contificoSku: true,
+      metaRetailerId: true,
+    },
+  });
+  if (!existing) {
+    throw new HttpError(
+      StatusCodes.NOT_FOUND,
+      'Variante no encontrada.',
+      'ALTOSA_VARIANT_NOT_FOUND'
+    );
+  }
+  if (existing.estadoId !== ESTADO_ANULADO) {
+    throw new HttpError(
+      StatusCodes.CONFLICT,
+      'Solo se puede eliminar definitivamente una variante anulada.',
+      'ALTOSA_PERMANENT_DELETE_NOT_ANNULLED'
+    );
+  }
+  if (existing.contificoId || existing.contificoSku || existing.metaRetailerId) {
+    throw new HttpError(
+      StatusCodes.CONFLICT,
+      'La variante está mapeada a Contifico o Meta. Quita los mapeos antes de eliminarla definitivamente.',
+      'ALTOSA_PERMANENT_DELETE_MAPPED'
+    );
+  }
+
+  await prisma.productoVariante.delete({ where: { idVariante: variantId } });
+  return { id: variantId, sku: existing.sku, deleted: true as const };
+}
+
+export async function deleteProductPermanently(id: number) {
+  const prisma = getPrisma();
+  const existing = await prisma.producto.findUnique({
+    where: { idProducto: id },
+    select: {
+      idProducto: true,
+      estadoId: true,
+      variants: {
+        select: {
+          idVariante: true,
+          sku: true,
+          contificoId: true,
+          contificoSku: true,
+          metaRetailerId: true,
+        },
+      },
+    },
+  });
+  if (!existing) {
+    throw new HttpError(
+      StatusCodes.NOT_FOUND,
+      'Producto no encontrado.',
+      'ALTOSA_PRODUCT_NOT_FOUND'
+    );
+  }
+  if (existing.estadoId !== ESTADO_ANULADO) {
+    throw new HttpError(
+      StatusCodes.CONFLICT,
+      'Solo se puede eliminar definitivamente un producto anulado.',
+      'ALTOSA_PERMANENT_DELETE_NOT_ANNULLED'
+    );
+  }
+  const mappedVariants = existing.variants.filter(
+    (variant) =>
+      Boolean(variant.contificoId) ||
+      Boolean(variant.contificoSku) ||
+      Boolean(variant.metaRetailerId)
+  );
+  if (mappedVariants.length > 0) {
+    const skus = mappedVariants
+      .map((variant) => variant.sku)
+      .filter((sku): sku is string => Boolean(sku))
+      .join(', ');
+    throw new HttpError(
+      StatusCodes.CONFLICT,
+      `El producto tiene variantes mapeadas a Contifico o Meta${
+        skus ? ` (${skus})` : ''
+      }. Quita los mapeos antes de eliminarlo definitivamente.`,
+      'ALTOSA_PERMANENT_DELETE_MAPPED'
+    );
+  }
+
+  await prisma.$transaction([
+    prisma.productoVariante.deleteMany({ where: { idProducto: id } }),
+    prisma.producto.delete({ where: { idProducto: id } }),
+  ]);
+  return {
+    id,
+    skus: existing.variants
+      .map((variant) => variant.sku)
+      .filter((sku): sku is string => Boolean(sku)),
+    deleted: true as const,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2547,6 +2664,7 @@ export async function syncProducts(
                 savedVariant.precioUsd === null
                   ? null
                   : Number(savedVariant.precioUsd),
+              porcentajeIva: savedVariant.porcentajeIva,
               isActive: savedVariant.isActive,
               subcategoryName: item.subcategoria,
             });
@@ -2577,6 +2695,7 @@ export async function syncProducts(
                 savedVariant.precioUsd === null
                   ? null
                   : Number(savedVariant.precioUsd),
+              porcentajeIva: savedVariant.porcentajeIva,
               isActive: savedVariant.isActive,
               subcategoryName: item.subcategoria,
             });

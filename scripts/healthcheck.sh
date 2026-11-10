@@ -72,6 +72,17 @@ else
 fi
 echo
 
+echo "--- product_variants.precio_usd / porcentaje_iva ---"
+PRICE_PRECISION="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT numeric_precision || ',' || numeric_scale FROM information_schema.columns WHERE table_name='product_variants' AND column_name='precio_usd';")"
+IVA_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='product_variants' AND column_name='porcentaje_iva';")"
+if [ "$PRICE_PRECISION" = "14,4" ] && [ -n "$IVA_COL" ]; then
+  echo "OK: product_variants.precio_usd(14,4) + $IVA_COL"
+else
+  echo "ERROR: falta precio_usd(14,4) o porcentaje_iva (ejecuta scripts/apply-variant-price-iva-migration.sh)" >&2
+  exit 1
+fi
+echo
+
 echo "--- products.palabras_clave ---"
 PRODUCT_KEYWORDS_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name='palabras_clave';")"
 if [ -n "$PRODUCT_KEYWORDS_COL" ]; then

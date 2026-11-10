@@ -153,11 +153,9 @@ export async function updateProduct(req: Request, res: Response): Promise<void> 
 export async function deleteProduct(req: Request, res: Response): Promise<void> {
   const { id } = idParamSchema.parse(req.params);
   if (req.query.permanent === 'true') {
-    throw new HttpError(
-      StatusCodes.CONFLICT,
-      'El borrado definitivo está deshabilitado. Solo se permite anular; los ítems se conservan en Meta/Contifico desactivados.',
-      'ALTOSA_PERMANENT_DELETE_DISABLED'
-    );
+    const result = await catalogService.deleteProductPermanently(id);
+    sendSuccess(res, result);
+    return;
   }
   const producto = await catalogService.annulProduct(id);
   sendSuccess(res, producto);
@@ -180,11 +178,9 @@ export async function updateVariant(req: Request, res: Response): Promise<void> 
 export async function deleteVariant(req: Request, res: Response): Promise<void> {
   const { id } = idParamSchema.parse(req.params);
   if (req.query.permanent === 'true') {
-    throw new HttpError(
-      StatusCodes.CONFLICT,
-      'El borrado definitivo está deshabilitado. Solo se permite anular; los ítems se conservan en Meta/Contifico desactivados.',
-      'ALTOSA_PERMANENT_DELETE_DISABLED'
-    );
+    const result = await catalogService.deleteVariantPermanently(id);
+    sendSuccess(res, result);
+    return;
   }
   const variante = await catalogService.annulVariant(id);
   sendSuccess(res, variante);

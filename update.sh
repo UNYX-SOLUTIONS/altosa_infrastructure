@@ -111,6 +111,9 @@ bash ./scripts/apply-product-keywords-migration.sh
 log "Aplicando migración de administración de taxonomía"
 bash ./scripts/apply-taxonomy-admin-migration.sh
 
+log "Aplicando migración de precio (4 decimales) e IVA por variante"
+bash ./scripts/apply-variant-price-iva-migration.sh
+
 if [ "$API_ONLY" = 1 ]; then
   log "Reconstruyendo y reiniciando solo altosa-api (pgAdmin intacto)"
   docker compose build api

@@ -35,6 +35,16 @@ const envSchema = z.object({
   ),
   CONTIFICO_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   CONTIFICO_API_TOKEN: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  // IDs de cuentas contables usados al crear categorías nuevas en Contifico.
+  // Si no están definidos, se heredan de una categoría existente que ya opera.
+  CONTIFICO_CUENTA_VENTA: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().max(16).optional()
+  ),
+  CONTIFICO_CUENTA_INVENTARIO: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().max(16).optional()
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);
