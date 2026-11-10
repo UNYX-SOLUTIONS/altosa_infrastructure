@@ -313,6 +313,7 @@ export interface ContificoVariantPayload {
   color: string | null;
   description: string | null;
   price: number | null;
+  porcentajeIva?: number | null;
   isActive: boolean;
   subcategoryName?: string | null;
 }
@@ -352,6 +353,7 @@ export async function createContificoProductForVariant(
     categoriaNombre: input.subcategoryName?.trim() || 'General',
     pvp1: input.price ?? 0,
     pvpManual: (input.price ?? 0) <= 0,
+    porcentajeIva: input.porcentajeIva ?? 15,
     estado: 'A',
   });
 
@@ -383,6 +385,9 @@ export async function updateContificoProductForVariant(
       : {}),
     ...(input.price !== null
       ? { pvp1: input.price, pvpManual: input.price <= 0 }
+      : {}),
+    ...(input.porcentajeIva !== undefined && input.porcentajeIva !== null
+      ? { porcentajeIva: input.porcentajeIva }
       : {}),
     estado: input.isActive ? 'A' : 'I',
   });

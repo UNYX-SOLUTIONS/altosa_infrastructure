@@ -1,4 +1,5 @@
 import { env } from '../../config/env';
+import { logger } from '../../config/logger';
 import { HttpError } from '../../utils/api-response';
 import {
   contificoGet,
@@ -271,8 +272,43 @@ export async function resolveContificoCategoryId(
     return exact.id;
   }
 
+  // Contifico exige cuentas contables para que una categoría nueva sirva en
+  // facturación. Se toman de env o, si no están configuradas, de una categoría
+  // existente que ya esté operando (preferentemente de tipo PROD).
+  const productCategories = all.filter(
+    (category) => category.tipo_producto === 'PROD'
+  );
+  const salesReference =
+    productCategories.find((category) => Boolean(category.cuenta_venta)) ??
+    all.find((category) => Boolean(category.cuenta_venta));
+  const inventoryReference =
+    productCategories.find((category) => Boolean(category.cuenta_inventario)) ??
+    all.find((category) => Boolean(category.cuenta_inventario));
+  const configuredVenta = env.CONTIFICO_CUENTA_VENTA?.trim() || null;
+  const configuredInventario =
+    env.CONTIFICO_CUENTA_INVENTARIO?.trim() || null;
+  const cuentaVenta =
+    configuredVenta ?? salesReference?.cuenta_venta?.trim() ?? null;
+  const cuentaInventario =
+    configuredInventario ??
+    inventoryReference?.cuenta_inventario?.trim() ??
+    null;
+
+  if (!cuentaVenta || !cuentaInventario) {
+    logger.warn(
+      { cuentaVenta, cuentaInventario, categoryName: name },
+      'No se creó la categoría en Contifico: faltan cuenta_venta o cuenta_inventario. Configura CONTIFICO_CUENTA_VENTA/CONTIFICO_CUENTA_INVENTARIO o ten una categoría existente con ambas cuentas.'
+    );
+    return null;
+  }
+
   try {
-    const created = await contificoPost<ContificoCategoryDto>('/categoria/', { nombre: name.trim() });
+    const created = await contificoPost<ContificoCategoryDto>('/categoria/', {
+      nombre: name.trim(),
+      tipo_producto: 'PROD',
+      cuenta_venta: cuentaVenta,
+      cuenta_inventario: cuentaInventario,
+    });
     return created.id;
   } catch {
     // Si la API rechaza la creación (p. ej. por permisos), el producto

@@ -123,7 +123,8 @@ model ProductoVariante {
   contificoMappingLocked      Boolean  @default(false) @map("contifico_mapping_locked")
   color                       String?  @db.Text
   nombre                      String?  @db.Text
-  precioUsd                   Decimal? @map("precio_usd") @db.Decimal(12, 2)
+  precioUsd                   Decimal? @map("precio_usd") @db.Decimal(14, 4)
+  porcentajeIva               Int      @default(15) @map("porcentaje_iva") @db.SmallInt
   material                    String?  @db.Text
   tapizado                    String?  @db.Text
   estructura                  String?  @db.Text
