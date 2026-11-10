@@ -123,14 +123,26 @@ export function contificoGet<T>(
   return contificoRequest<T>('GET', path, { query, baseUrl });
 }
 
-export function contificoPost<T>(path: string, body: unknown): Promise<T> {
-  return contificoRequest<T>('POST', path, { body });
+export function contificoPost<T>(
+  path: string,
+  body: unknown,
+  baseUrl?: string
+): Promise<T> {
+  return contificoRequest<T>('POST', path, { body, baseUrl });
 }
 
-export function contificoPatch<T>(path: string, body: unknown): Promise<T> {
-  return contificoRequest<T>('PATCH', path, { body });
+export function contificoPatch<T>(
+  path: string,
+  body: unknown,
+  baseUrl?: string
+): Promise<T> {
+  return contificoRequest<T>('PATCH', path, { body, baseUrl });
 }
 
-export function contificoPut<T>(path: string, body: unknown): Promise<T> {
-  return contificoRequest<T>('PUT', path, { body });
+export function contificoPut<T>(
+  path: string,
+  body: unknown,
+  baseUrl?: string
+): Promise<T> {
+  return contificoRequest<T>('PUT', path, { body, baseUrl });
 }
