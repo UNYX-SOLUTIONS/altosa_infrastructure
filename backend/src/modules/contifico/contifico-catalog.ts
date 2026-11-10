@@ -267,12 +267,8 @@ export async function resolveContificoCategoryId(
   }
 
   const all = categories ?? (await fetchContificoCategories());
-  const exact = all.find((category) => normalizeName(category.nombre) === target);
-  if (exact) {
-    return exact.id;
-  }
 
-  // Contifico exige cuentas contables para que una categoría nueva sirva en
+  // Contifico exige cuentas contables para que una categoría sirva en
   // facturación. Se toman de env o, si no están configuradas, de una categoría
   // existente que ya esté operando (preferentemente de tipo PROD).
   const productCategories = all.filter(
@@ -297,9 +293,40 @@ export async function resolveContificoCategoryId(
   if (!cuentaVenta || !cuentaInventario) {
     logger.warn(
       { cuentaVenta, cuentaInventario, categoryName: name },
-      'No se creó la categoría en Contifico: faltan cuenta_venta o cuenta_inventario. Configura CONTIFICO_CUENTA_VENTA/CONTIFICO_CUENTA_INVENTARIO o ten una categoría existente con ambas cuentas.'
+      'No se puede habilitar la categoría en Contifico: faltan cuenta_venta o cuenta_inventario. Configura CONTIFICO_CUENTA_VENTA/CONTIFICO_CUENTA_INVENTARIO o ten una categoría existente con ambas cuentas.'
     );
     return null;
+  }
+
+  const exactMatches = all.filter(
+    (category) => normalizeName(category.nombre) === target
+  );
+
+  // La API v1 de Contifico no permite actualizar cuentas de una categoría
+  // existente (PUT/PATCH responden 405 y POST /categoria/{id} crea otra).
+  // Por eso se reutiliza solo una categoría ya habilitada; si todas las
+  // coincidencias están sin cuenta de venta, se crea una nueva con cuentas.
+  const healthyMatch = exactMatches.find(
+    (category) =>
+      category.tipo_producto === 'PROD' &&
+      Boolean(category.cuenta_venta?.trim())
+  );
+  if (healthyMatch) {
+    return healthyMatch.id;
+  }
+  if (exactMatches.length > 0) {
+    logger.warn(
+      {
+        categoryName: name,
+        matches: exactMatches.map((category) => ({
+          id: category.id,
+          cuentaVenta: category.cuenta_venta,
+          cuentaInventario: category.cuenta_inventario,
+          tipoProducto: category.tipo_producto,
+        })),
+      },
+      'Las categorías existentes con ese nombre no están habilitadas para ventas; se creará una nueva categoría con cuentas contables. Las antiguas se pueden borrar en Contifico cuando queden sin productos.'
+    );
   }
 
   try {
@@ -309,6 +336,18 @@ export async function resolveContificoCategoryId(
       cuenta_venta: cuentaVenta,
       cuenta_inventario: cuentaInventario,
     });
+    if (!created.cuenta_venta) {
+      logger.warn(
+        { categoryId: created.id, categoryName: created.nombre },
+        'Contifico no guardó cuenta_venta al crear la categoría.'
+      );
+    }
+    if (!created.cuenta_inventario) {
+      logger.warn(
+        { categoryId: created.id, categoryName: created.nombre },
+        'Contifico no guardó cuenta_inventario al crear la categoría (limitación de su API v1). Configúrala manualmente en la UI si es requerida para inventario.'
+      );
+    }
     return created.id;
   } catch {
     // Si la API rechaza la creación (p. ej. por permisos), el producto
