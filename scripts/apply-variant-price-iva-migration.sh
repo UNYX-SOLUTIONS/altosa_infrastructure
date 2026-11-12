@@ -35,4 +35,12 @@ IVA_COLUMN="$(docker exec -i altosa-postgres psql -tA \
   exit 1
 }
 
-echo "[✓] Migración product_variants.precio_usd(14,4) + porcentaje_iva aplicada."
+GENERATED_COLUMNS="$(docker exec -i altosa-postgres psql -tA \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'product_variants' AND column_name IN ('iva_usd', 'precio_con_iva');")"
+[ "$GENERATED_COLUMNS" = "2" ] || {
+  echo "ERROR: faltan product_variants.iva_usd/precio_con_iva tras la migración (encontradas: $GENERATED_COLUMNS)." >&2
+  exit 1
+}
+
+echo "[✓] Migración product_variants.precio_usd(14,4) + porcentaje_iva + iva_usd/precio_con_iva aplicada."

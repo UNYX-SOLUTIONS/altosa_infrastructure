@@ -22,6 +22,10 @@ import { dirname, resolve } from 'node:path';
 import { disconnectPrisma, getPrisma } from '../config/prisma';
 import { resolveCanonicalTaxonomy } from '../modules/catalog/taxonomy';
 import { buildFlatName } from '../utils/product-naming';
+import {
+  computePrecioSinIva,
+  DEFAULT_IVA_PERCENTAGE,
+} from '../utils/pricing';
 
 const META_FIELDS =
   'retailer_id,name,availability,visibility,price,image_url,url,description,custom_label_0,custom_label_1';
@@ -524,7 +528,8 @@ async function createVariant(product: ProductRow, item: MetaItem, estadoId: numb
         color,
         material,
         descripcion: item.description ?? item.name,
-        precioUsd: price,
+        precioUsd: computePrecioSinIva(price, DEFAULT_IVA_PERCENTAGE),
+        porcentajeIva: DEFAULT_IVA_PERCENTAGE,
         imagenUrl: item.imageUrl,
         urlProducto: item.url,
         estadoId,

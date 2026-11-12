@@ -1,5 +1,6 @@
 import { getPrisma } from '../../config/prisma';
 import { buildFlatName } from '../../utils/product-naming';
+import { computePrecioConIva } from '../../utils/pricing';
 
 export type MetaFeedScope = 'published' | 'meta' | 'active' | 'all';
 
@@ -130,6 +131,7 @@ export async function buildMetaFeed(scope: MetaFeedScope): Promise<MetaFeedResul
       color: true,
       descripcion: true,
       precioUsd: true,
+      porcentajeIva: true,
       imagenUrl: true,
       urlProducto: true,
       material: true,
@@ -183,7 +185,12 @@ export async function buildMetaFeed(scope: MetaFeedScope): Promise<MetaFeedResul
       ),
       9999
     );
-    const price = formatPrice(variant.precioUsd);
+    const price = formatPrice(
+      computePrecioConIva(
+        variant.precioUsd === null ? null : Number(variant.precioUsd),
+        variant.porcentajeIva
+      )
+    );
     const link =
       validHttpUrl(variant.urlProducto) ??
       (slugify(product.producto)
