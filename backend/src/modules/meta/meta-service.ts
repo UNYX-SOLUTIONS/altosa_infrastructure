@@ -2,6 +2,7 @@ import { getPrisma } from '../../config/prisma';
 import { logger } from '../../config/logger';
 import { HttpError } from '../../utils/api-response';
 import { buildFlatName } from '../../utils/product-naming';
+import { computePrecioConIva } from '../../utils/pricing';
 import {
   createMetaCatalogItem,
   deleteMetaCatalogItem,
@@ -212,6 +213,7 @@ async function getVariantForMeta(variantId: number) {
       color: true,
       descripcion: true,
       precioUsd: true,
+      porcentajeIva: true,
       imagenUrl: true,
       urlProducto: true,
       isActive: true,
@@ -240,7 +242,10 @@ function snapshotFromVariant(
     variantName: variant.nombre?.trim() || null,
     color: variant.color,
     description: variant.descripcion,
-    price: variant.precioUsd === null ? null : Number(variant.precioUsd),
+    price: computePrecioConIva(
+      variant.precioUsd === null ? null : Number(variant.precioUsd),
+      variant.porcentajeIva
+    ),
     imageUrl: variant.imagenUrl,
     url: variant.urlProducto,
     isActive: variant.isActive,

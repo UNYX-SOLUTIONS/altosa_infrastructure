@@ -4,6 +4,7 @@ import { getPrisma } from '../../config/prisma';
 import { logger } from '../../config/logger';
 import { HttpError } from '../../utils/api-response';
 import { buildFlatName } from '../../utils/product-naming';
+import { computePrecioConIva } from '../../utils/pricing';
 import { findMetaCatalogItem } from '../meta/meta-client';
 import {
   publishVariantById,
@@ -204,6 +205,17 @@ type VarianteConRelaciones = Prisma.ProductoVarianteGetPayload<{
 }>;
 
 function mapVariante(variante: VarianteConRelaciones) {
+  const precioUsd = toNumber(variante.precioUsd);
+  const porcentajeIva = variante.porcentajeIva ?? 15;
+  const ivaUsd =
+    precioUsd === null
+      ? null
+      : Math.round(precioUsd * porcentajeIva * 100) / 10000;
+  const precioConIva =
+    precioUsd === null || ivaUsd === null
+      ? null
+      : Math.round((precioUsd + ivaUsd) * 10000) / 10000;
+
   return {
     id: variante.idVariante,
     sku: variante.sku,
@@ -215,8 +227,10 @@ function mapVariante(variante: VarianteConRelaciones) {
     color: variante.color,
     nombre: variante.nombre,
     descripcion: variante.descripcion,
-    precioUsd: toNumber(variante.precioUsd),
-    porcentajeIva: variante.porcentajeIva,
+    precioUsd,
+    porcentajeIva,
+    ivaUsd,
+    precioConIva,
     imagenUrl: variante.imagenUrl,
     urlProducto: variante.urlProducto,
     material: variante.material,
@@ -1495,6 +1509,7 @@ export async function updateProduct(
           color: true,
           descripcion: true,
           precioUsd: true,
+          porcentajeIva: true,
           isActive: true,
           imagenUrl: true,
           urlProducto: true,
@@ -1590,7 +1605,10 @@ export async function updateProduct(
             input.descripcion !== undefined
               ? input.descripcion
               : variant.descripcion,
-          price: variant.precioUsd === null ? null : Number(variant.precioUsd),
+          price: computePrecioConIva(
+            variant.precioUsd === null ? null : Number(variant.precioUsd),
+            variant.porcentajeIva
+          ),
           imageUrl: variant.imagenUrl,
           url: variant.urlProducto,
           isActive: resolvedIsActive ?? variant.isActive,
@@ -1667,6 +1685,7 @@ type VariantExternalFields = {
   color: string | null;
   descripcion: string | null;
   precioUsd: Prisma.Decimal | null;
+  porcentajeIva: number;
   imagenUrl: string | null;
   urlProducto: string | null;
   contificoId: string | null;
@@ -1685,6 +1704,7 @@ async function deactivateVariantExternally(
 ): Promise<void> {
   const price =
     variant.precioUsd === null ? null : Number(variant.precioUsd);
+  const metaPrice = computePrecioConIva(price, variant.porcentajeIva);
   const subcategoryName = variant.producto.subcategoria?.nombre ?? null;
 
   if (variant.metaRetailerId) {
@@ -1693,7 +1713,7 @@ async function deactivateVariantExternally(
         productName: variant.producto.producto,
         color: variant.color,
         description: variant.descripcion,
-        price,
+        price: metaPrice,
         imageUrl: variant.imagenUrl,
         url: variant.urlProducto,
         isActive: false,
@@ -1749,6 +1769,7 @@ export async function annulProduct(id: number) {
           color: true,
           descripcion: true,
           precioUsd: true,
+          porcentajeIva: true,
           imagenUrl: true,
           urlProducto: true,
           contificoId: true,
@@ -2015,12 +2036,14 @@ export async function updateVariant(
           input.descripcion !== undefined
             ? input.descripcion
             : existing.descripcion,
-        price:
+        price: computePrecioConIva(
           input.precioUsd !== undefined
             ? input.precioUsd
             : existing.precioUsd === null
               ? null
               : Number(existing.precioUsd),
+          input.porcentajeIva ?? existing.porcentajeIva
+        ),
         imageUrl:
           input.imagenUrl !== undefined ? input.imagenUrl : existing.imagenUrl,
         url: existing.urlProducto,
@@ -2090,6 +2113,7 @@ export async function annulVariant(variantId: number) {
       color: true,
       descripcion: true,
       precioUsd: true,
+      porcentajeIva: true,
       imagenUrl: true,
       urlProducto: true,
       contificoId: true,
@@ -2587,10 +2611,12 @@ export async function syncProducts(
             productName: item.nombre,
             color: savedVariant.color,
             description: savedVariant.descripcion,
-            price:
+            price: computePrecioConIva(
               savedVariant.precioUsd === null
                 ? null
                 : Number(savedVariant.precioUsd),
+              savedVariant.porcentajeIva
+            ),
             imageUrl: savedVariant.imagenUrl,
             url: savedVariant.urlProducto,
             isActive: savedVariant.isActive,
@@ -2621,8 +2647,10 @@ export async function syncProducts(
             retailerId: savedVariant.sku?.trim() || `ALT-${savedVariant.idVariante}`,
             name: buildFlatName(item.nombre, savedVariant.color),
             description: savedVariant.descripcion,
-            price:
+            price: computePrecioConIva(
               savedVariant.precioUsd === null ? null : Number(savedVariant.precioUsd),
+              savedVariant.porcentajeIva
+            ),
             imageUrl: savedVariant.imagenUrl,
             url: savedVariant.urlProducto,
           });
