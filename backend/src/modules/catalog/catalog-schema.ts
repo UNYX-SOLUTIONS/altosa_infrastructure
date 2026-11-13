@@ -78,7 +78,7 @@ export const documentsQuerySchema = z.object({
 });
 
 export const simpleListQuerySchema = z.object({
-  active: booleanQuery,
+  active: activeFilterQuery,
 });
 
 const optionalUrl = z.string().trim().url().max(500).optional().or(z.literal(''));
@@ -139,7 +139,7 @@ export const variantBodySchema = z.object({
   anchoAsientoCm: z.coerce.number().min(0).max(100000).optional(),
   pesoKg: z.coerce.number().min(0).max(100000).optional(),
   garantiaId: z.coerce.number().int().positive().nullable().optional(),
-  catalogoId: z.coerce.number().int().positive().optional(),
+  catalogoId: z.coerce.number().int().positive().nullable().optional(),
   estadoId: z.coerce.number().int().positive().max(32767).optional(),
   kommoTemplateId: z.string().trim().min(1).max(80).nullable().optional(),
   metaRetailerId: z.string().trim().max(100).nullable().optional(),
