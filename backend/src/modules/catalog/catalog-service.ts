@@ -1251,7 +1251,7 @@ async function validateVariantReferences(input: VariantBody | UpdateVariantBody)
   if (input.garantiaId !== undefined && input.garantiaId !== null) {
     await ensureGarantiaExists(input.garantiaId);
   }
-  if (input.catalogoId !== undefined) {
+  if (input.catalogoId != null) {
     await ensureCatalogoExists(input.catalogoId);
   }
   if (input.kommoTemplateId) {
