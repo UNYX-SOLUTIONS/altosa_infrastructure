@@ -53,7 +53,7 @@ echo
 
 echo "--- taxonomía editable (is_active, is_system, sort_order) ---"
 TAXONOMY_COLS="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND ((table_name='categories' AND column_name IN ('is_active','is_system','sort_order')) OR (table_name='subcategories' AND column_name IN ('is_active','is_system','sort_order')));")"
-TAXONOMY_SYSTEM="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM categories c JOIN subcategories s ON s.id_categoria=c.id WHERE lower(c.nombre)='otros' AND lower(s.nombre)='otros' AND c.is_system = TRUE AND s.is_system = TRUE;")"
+TAXONOMY_SYSTEM="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM categories c JOIN subcategories s ON s.id_categoria=c.id_categoria WHERE lower(c.nombre)='otros' AND lower(s.nombre)='otros' AND c.is_system = TRUE AND s.is_system = TRUE;")"
 if [ "$TAXONOMY_COLS" = "6" ] && [ "$TAXONOMY_SYSTEM" = "1" ]; then
   echo "OK: columnas de taxonomía + fallback Otros/Otros de sistema"
 else
