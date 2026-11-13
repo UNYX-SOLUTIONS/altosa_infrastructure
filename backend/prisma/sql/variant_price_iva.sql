@@ -5,9 +5,30 @@
 -- unitarios de muebles (ej. 123.4567). El IVA se guarda por variante para
 -- enviarlo como porcentaje_iva al producto plano de Contifico.
 
-ALTER TABLE product_variants
-  ALTER COLUMN precio_usd TYPE NUMERIC(14, 4)
-  USING precio_usd::numeric(14, 4);
+-- Si la columna todavía no tiene la precisión final, se cambia el tipo. Si ya
+-- existe una columna generada que depende de precio_usd (caso de una segunda
+-- ejecución), PostgreSQL no permite el ALTER; se eliminan temporalmente y se
+-- vuelven a crear al final del script. Si la precisión ya es 14,4 se omite.
+DO $$
+DECLARE
+  current_precision INTEGER;
+  current_scale INTEGER;
+BEGIN
+  SELECT numeric_precision, numeric_scale
+    INTO current_precision, current_scale
+    FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = 'product_variants'
+     AND column_name = 'precio_usd';
+
+  IF current_precision IS DISTINCT FROM 14 OR current_scale IS DISTINCT FROM 4 THEN
+    ALTER TABLE product_variants DROP COLUMN IF EXISTS iva_usd;
+    ALTER TABLE product_variants DROP COLUMN IF EXISTS precio_con_iva;
+    ALTER TABLE product_variants
+      ALTER COLUMN precio_usd TYPE NUMERIC(14, 4)
+      USING precio_usd::numeric(14, 4);
+  END IF;
+END $$;
 
 ALTER TABLE product_variants
   ADD COLUMN IF NOT EXISTS porcentaje_iva SMALLINT NOT NULL DEFAULT 15;
