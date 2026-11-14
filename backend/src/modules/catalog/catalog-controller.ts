@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import { HttpError, buildMeta, sendSuccess } from '../../utils/api-response';
 import {
+  catalogUpdateBodySchema,
   categoriesQuerySchema,
   categoryCreateBodySchema,
   categoryUpdateBodySchema,
@@ -94,6 +95,13 @@ export async function listCatalogs(req: Request, res: Response): Promise<void> {
   const query = simpleListQuerySchema.parse(req.query);
   const catalogos = await catalogService.listCatalogs(query);
   sendSuccess(res, catalogos);
+}
+
+export async function updateCatalog(req: Request, res: Response): Promise<void> {
+  const { id } = idParamSchema.parse(req.params);
+  const input = catalogUpdateBodySchema.parse(req.body);
+  const catalogo = await catalogService.updateCatalog(id, input);
+  sendSuccess(res, catalogo);
 }
 
 export async function listLocations(req: Request, res: Response): Promise<void> {

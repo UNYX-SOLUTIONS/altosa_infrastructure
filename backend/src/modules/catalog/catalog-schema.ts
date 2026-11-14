@@ -83,6 +83,16 @@ export const simpleListQuerySchema = z.object({
 
 const optionalUrl = z.string().trim().url().max(500).optional().or(z.literal(''));
 
+export const catalogUpdateBodySchema = z.object({
+  keyword: z.string().trim().max(200).nullable().optional(),
+  driveUrl: z.string().trim().max(1000).nullable().optional(),
+  archivo: z.string().trim().max(500).nullable().optional(),
+  paginas: z.coerce.number().int().positive().nullable().optional(),
+  observaciones: z.string().trim().max(2000).nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+export type CatalogUpdateBody = z.infer<typeof catalogUpdateBodySchema>;
+
 export const warrantyListQuerySchema = z.object({
   active: z
     .enum(['all', 'true', 'false'])

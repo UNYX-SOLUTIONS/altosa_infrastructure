@@ -22,6 +22,7 @@ import {
   updateContificoProductForVariant,
 } from '../contifico/contifico-service';
 import type {
+  CatalogUpdateBody,
   CategoryCreateBody,
   CategoryUpdateBody,
   CreateProductBody,
@@ -851,16 +852,12 @@ export async function deleteSubcategory(id: number) {
   return { id };
 }
 
-export async function listCatalogs(query: SimpleListQuery) {
-  const prisma = getPrisma();
+type CatalogoConEstado = Prisma.CatalogoGetPayload<{
+  include: { estado: true };
+}>;
 
-  const catalogos = await prisma.catalogo.findMany({
-    where: { isActive: query.active },
-    include: { estado: true },
-    orderBy: { id: 'asc' },
-  });
-
-  return catalogos.map((catalogo) => ({
+function mapCatalogoListItem(catalogo: CatalogoConEstado) {
+  return {
     id: catalogo.id,
     keyword: catalogo.keyword,
     archivo: catalogo.archivo,
@@ -871,7 +868,58 @@ export async function listCatalogs(query: SimpleListQuery) {
     observaciones: catalogo.observaciones,
     estado: mapEstado(catalogo.estado),
     isActive: catalogo.isActive,
-  }));
+  };
+}
+
+export async function listCatalogs(query: SimpleListQuery) {
+  const prisma = getPrisma();
+
+  const catalogos = await prisma.catalogo.findMany({
+    where: { isActive: query.active },
+    include: { estado: true },
+    orderBy: { id: 'asc' },
+  });
+
+  return catalogos.map(mapCatalogoListItem);
+}
+
+export async function updateCatalog(id: number, input: CatalogUpdateBody) {
+  const prisma = getPrisma();
+  const existing = await prisma.catalogo.findUnique({ where: { id } });
+  if (!existing) {
+    throw new HttpError(
+      StatusCodes.NOT_FOUND,
+      'Catálogo no encontrado.',
+      'ALTOSA_CATALOG_NOT_FOUND'
+    );
+  }
+
+  const data: Prisma.CatalogoUpdateInput = { updatedAt: new Date() };
+  if (input.keyword !== undefined) {
+    data.keyword = input.keyword?.trim() || null;
+  }
+  if (input.driveUrl !== undefined) {
+    data.driveUrl = input.driveUrl?.trim() || null;
+  }
+  if (input.archivo !== undefined) {
+    data.archivo = input.archivo?.trim() || null;
+  }
+  if (input.paginas !== undefined) {
+    data.paginas = input.paginas ?? null;
+  }
+  if (input.observaciones !== undefined) {
+    data.observaciones = input.observaciones?.trim() || null;
+  }
+  if (input.isActive !== undefined) {
+    data.isActive = input.isActive;
+  }
+
+  const updated = await prisma.catalogo.update({
+    where: { id },
+    data,
+    include: { estado: true },
+  });
+  return mapCatalogoListItem(updated);
 }
 
 export async function listLocations(query: SimpleListQuery) {
