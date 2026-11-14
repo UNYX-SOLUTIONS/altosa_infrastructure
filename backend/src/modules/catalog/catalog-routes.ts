@@ -25,6 +25,7 @@ catalogRouter.post('/subcategories', asyncHandler(catalogController.createSubcat
 catalogRouter.patch('/subcategories/:id', asyncHandler(catalogController.updateSubcategory));
 catalogRouter.delete('/subcategories/:id', asyncHandler(catalogController.deleteSubcategory));
 catalogRouter.get('/catalogs', asyncHandler(catalogController.listCatalogs));
+catalogRouter.patch('/catalogs/:id', asyncHandler(catalogController.updateCatalog));
 catalogRouter.get('/locations', asyncHandler(catalogController.listLocations));
 catalogRouter.get('/warranties', asyncHandler(catalogController.listWarranties));
 catalogRouter.post('/warranties', asyncHandler(catalogController.createWarranty));
