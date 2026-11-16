@@ -154,6 +154,8 @@ export interface ContificoUpdateProductInput {
 export interface ContificoSyncOptions {
   dryRun?: boolean;
   onlySku?: string;
+  /** Varias SKUs puntuales (por ejemplo, todas las variantes de un producto). */
+  onlySkus?: string[];
   /**
    * Enlaza por nombre plano (producto padre + color) cuando no hay match por
    * ID/SKU. Útil para catálogos que ya venían de Meta/ETL.

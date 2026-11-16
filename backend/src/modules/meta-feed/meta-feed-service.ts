@@ -118,7 +118,7 @@ export async function buildMetaFeed(scope: MetaFeedScope): Promise<MetaFeedResul
       : scope === 'meta'
         ? { metaRetailerId: { not: null } }
         : scope === 'active'
-          ? { isActive: true }
+          ? { isActive: true, producto: { isActive: true } }
           : { OR: [{ metaRetailerId: { not: null } }, { isActive: true }] };
 
   const variants = await prisma.productoVariante.findMany({

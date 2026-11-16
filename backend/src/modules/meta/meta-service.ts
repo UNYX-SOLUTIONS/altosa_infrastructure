@@ -318,7 +318,12 @@ export async function updateVariantInMeta(
   }
 
   const variant = await getVariantForMeta(variantId);
-  if (!variant.metaRetailerId) {
+  const mappedRetailerId = variant.metaRetailerId?.trim() || null;
+  // En el modelo híbrido el feed CSV puede haber creado el ítem con el SKU
+  // como retailer_id. Si no hay mapeo local, actualizamos por SKU, pero no
+  // creamos: la creación la hace el feed.
+  const retailerId = mappedRetailerId ?? variant.sku?.trim() ?? null;
+  if (!retailerId) {
     return null;
   }
 
@@ -326,11 +331,12 @@ export async function updateVariantInMeta(
     ...snapshotFromVariant(variant),
     ...override,
   };
-  const retailerId = variant.metaRetailerId;
   const item = await findMetaCatalogItem(retailerId);
 
   if (!item) {
-    if (!snapshot.isActive) {
+    // Solo se republica un ítem que ya estaba mapeado y fue eliminado en Meta.
+    // Un ítem sin mapeo lo creará el feed CSV en su próxima pasada.
+    if (!mappedRetailerId || !snapshot.isActive) {
       return null;
     }
     const published = await publishVariantToMeta({
@@ -377,6 +383,15 @@ export async function updateVariantInMeta(
     url: snapshot.url ?? item.url,
     availability: snapshot.isActive ? 'in stock' : 'out of stock',
   });
+
+  if (!mappedRetailerId) {
+    // El ítem fue creado por el feed con el SKU como ID; guardamos el mapeo
+    // para que las siguientes actualizaciones y la salud de mapeos lo vean.
+    await getPrisma().productoVariante.update({
+      where: { idVariante: variant.idVariante },
+      data: { metaRetailerId: retailerId, metaMappingLocked: false },
+    });
+  }
 
   return { retailerId, updated: true, created: false };
 }
