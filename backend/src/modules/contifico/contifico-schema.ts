@@ -26,6 +26,7 @@ export const contificoImportBodySchema = z
 export const contificoSyncBodySchema = z.object({
   dryRun: z.boolean().optional().default(false),
   onlySku: z.string().trim().max(120).optional(),
+  onlySkus: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
   matchByName: z.boolean().optional().default(false),
   prune: z.boolean().optional().default(false),
   createMissing: z.boolean().optional().default(false),

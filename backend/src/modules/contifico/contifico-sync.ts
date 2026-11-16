@@ -85,8 +85,12 @@ export async function syncContificoCatalog(
   const dryRun = options.dryRun ?? false;
   const matchByName = options.matchByName ?? false;
   const createMissing = options.createMissing ?? false;
-  const prune = (options.prune ?? false) && !options.onlySku;
+  const prune =
+    (options.prune ?? false) &&
+    !options.onlySku &&
+    !(options.onlySkus && options.onlySkus.length > 0);
   const onlySku = key(options.onlySku);
+  const onlySkus = new Set((options.onlySkus ?? []).map(key));
   const estados = await resolveSyncEstados();
 
   const [rawProducts, categories] = await Promise.all([
@@ -106,9 +110,15 @@ export async function syncContificoCatalog(
           : null
       )
     )
-    .filter((product) =>
-      onlySku ? key(product.sku) === onlySku : true
-    );
+    .filter((product) => {
+      if (onlySku) {
+        return key(product.sku) === onlySku;
+      }
+      if (onlySkus.size > 0) {
+        return onlySkus.has(key(product.sku));
+      }
+      return true;
+    });
 
   const counters: ContificoSyncCounters = {
     source: 'contifico',

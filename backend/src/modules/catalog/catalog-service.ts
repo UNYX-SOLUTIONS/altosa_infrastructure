@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
 import { getPrisma } from '../../config/prisma';
+import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { HttpError } from '../../utils/api-response';
 import { buildFlatName } from '../../utils/product-naming';
@@ -1528,7 +1529,7 @@ export async function createProduct(input: CreateProductBody) {
     }
   }
 
-  if (input.writeThroughMeta) {
+  if (input.writeThroughMeta && env.META_API_CREATE_ENABLED) {
     const variants = await prisma.productoVariante.findMany({
       where: { idProducto: created.idProducto },
       select: { idVariante: true, isActive: true, metaRetailerId: true },
@@ -1953,7 +1954,7 @@ export async function createVariant(productId: number, input: VariantBody) {
     }
   }
 
-  if (input.writeThroughMeta) {
+  if (input.writeThroughMeta && env.META_API_CREATE_ENABLED) {
     try {
       await publishVariantById(created.idVariante);
     } catch (error) {
@@ -2085,7 +2086,7 @@ export async function updateVariant(
 
   if (
     !options.skipMeta &&
-    existing.metaRetailerId &&
+    (existing.metaRetailerId || existing.sku?.trim()) &&
     (input.nombre !== undefined ||
       input.color !== undefined ||
       input.descripcion !== undefined ||
@@ -2706,6 +2707,7 @@ export async function syncProducts(
       if (
         syncExternals &&
         result.meta &&
+        env.META_API_CREATE_ENABLED &&
         savedVariant.isActive &&
         !savedVariant.metaRetailerId
       ) {

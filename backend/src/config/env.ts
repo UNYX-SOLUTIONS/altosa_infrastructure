@@ -29,6 +29,12 @@ const envSchema = z.object({
     emptyToUndefined,
     z.string().min(8).max(200).optional()
   ),
+  // Crear ítems en Meta por API al crear producto/variante. En el modelo
+  // híbrido nuevo la creación la hace el feed CSV; la API solo actualiza.
+  META_API_CREATE_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
   CONTIFICO_API_URL: z.preprocess(
     emptyToUndefined,
     z.string().url().default('https://api.contifico.com/sistema/api/v1')
