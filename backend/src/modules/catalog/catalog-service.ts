@@ -22,6 +22,7 @@ import {
   updateContificoProductForVariant,
 } from '../contifico/contifico-service';
 import type {
+  CatalogCreateBody,
   CatalogUpdateBody,
   CategoryCreateBody,
   CategoryUpdateBody,
@@ -881,6 +882,24 @@ export async function listCatalogs(query: SimpleListQuery) {
   });
 
   return catalogos.map(mapCatalogoListItem);
+}
+
+export async function createCatalog(input: CatalogCreateBody) {
+  const prisma = getPrisma();
+  const isActive = input.isActive ?? true;
+  const created = await prisma.catalogo.create({
+    data: {
+      keyword: input.keyword.trim(),
+      driveUrl: input.driveUrl?.trim() || null,
+      archivo: input.archivo?.trim() || null,
+      paginas: input.paginas ?? null,
+      observaciones: input.observaciones?.trim() || null,
+      isActive,
+      estadoId: isActive ? ESTADO_ACTIVO : ESTADO_INACTIVO,
+    },
+    include: { estado: true },
+  });
+  return mapCatalogoListItem(created);
 }
 
 export async function updateCatalog(id: number, input: CatalogUpdateBody) {

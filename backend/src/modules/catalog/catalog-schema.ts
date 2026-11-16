@@ -91,6 +91,10 @@ export const catalogUpdateBodySchema = z.object({
   observaciones: z.string().trim().max(2000).nullable().optional(),
   isActive: z.boolean().optional(),
 });
+export const catalogCreateBodySchema = catalogUpdateBodySchema.extend({
+  keyword: z.string().trim().min(1).max(200),
+});
+export type CatalogCreateBody = z.infer<typeof catalogCreateBodySchema>;
 export type CatalogUpdateBody = z.infer<typeof catalogUpdateBodySchema>;
 
 export const warrantyListQuerySchema = z.object({
