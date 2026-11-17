@@ -7,12 +7,14 @@ import { syncContificoCatalog } from './contifico-sync';
 import {
   contificoImportBodySchema,
   contificoProductIdParamSchema,
+  contificoPushBodySchema,
   contificoProductsQuerySchema,
   contificoSearchQuerySchema,
   contificoSyncBodySchema,
   type ContificoImportBody,
   type ContificoProductIdParam,
   type ContificoProductsQuery,
+  type ContificoPushBody,
   type ContificoSearchQuery,
   type ContificoSyncBody,
 } from './contifico-schema';
@@ -59,4 +61,9 @@ export const importProduct = asyncHandler(async (req: Request, res: Response) =>
 export const sync = asyncHandler(async (req: Request, res: Response) => {
   const body = contificoSyncBodySchema.parse(req.body ?? {}) as ContificoSyncBody;
   sendSuccess(res, await syncContificoCatalog(body));
+});
+
+export const push = asyncHandler(async (req: Request, res: Response) => {
+  const body = contificoPushBodySchema.parse(req.body ?? {}) as ContificoPushBody;
+  sendSuccess(res, await contificoService.pushContificoCatalog(body));
 });

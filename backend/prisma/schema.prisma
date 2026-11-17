@@ -114,6 +114,7 @@ model ProductoVariante {
   idGarantia                  Int?     @map("id_garantia")
   idCatalogo                  Int?     @map("id_catalogo")
   descripcion                 String?  @db.Text
+  descripcionContifico        String?  @map("descripcion_contifico") @db.Text
   urlProducto                 String?  @map("url_producto") @db.Text
   sku                         String?  @db.Text
   metaRetailerId              String?  @unique @map("meta_retailer_id") @db.Text

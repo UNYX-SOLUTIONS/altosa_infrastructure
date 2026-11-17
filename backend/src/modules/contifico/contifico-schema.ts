@@ -32,6 +32,13 @@ export const contificoSyncBodySchema = z.object({
   createMissing: z.boolean().optional().default(false),
 });
 
+export const contificoPushBodySchema = z.object({
+  dryRun: z.boolean().optional().default(false),
+  cursor: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ContificoPushBody = z.infer<typeof contificoPushBodySchema>;
 export type ContificoSearchQuery = z.infer<typeof contificoSearchQuerySchema>;
 export type ContificoProductsQuery = z.infer<typeof contificoProductsQuerySchema>;
 export type ContificoProductIdParam = z.infer<typeof contificoProductIdParamSchema>;

@@ -168,6 +168,9 @@ bash ./scripts/apply-taxonomy-admin-migration.sh
 log "Aplicando migración de precio (4 decimales) e IVA por variante"
 bash ./scripts/apply-variant-price-iva-migration.sh
 
+log "Aplicando migración de descripción exclusiva para Contifico"
+bash ./scripts/apply-variant-descripcion-contifico-migration.sh
+
 log "Construyendo y levantando servicios"
 docker compose up -d --build
 
