@@ -10,3 +10,4 @@ contificoRouter.get('/products/:id', contificoController.getProduct);
 contificoRouter.get('/categories', contificoController.listCategories);
 contificoRouter.post('/import', contificoController.importProduct);
 contificoRouter.post('/sync', contificoController.sync);
+contificoRouter.post('/push', contificoController.push);

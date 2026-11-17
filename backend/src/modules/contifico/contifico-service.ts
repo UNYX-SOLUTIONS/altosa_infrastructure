@@ -13,6 +13,7 @@ import {
   updateContificoProduct,
 } from './contifico-catalog';
 import { mapContificoProduct, resolveContificoSku } from './contifico-mappers';
+import type { ContificoPushBody } from './contifico-schema';
 import type {
   ContificoCatalogItem,
   ContificoImportResult,
@@ -403,3 +404,121 @@ export async function deactivateContificoProductForVariant(
 }
 
 
+
+export interface ContificoPushResult {
+  dryRun: boolean;
+  total: number;
+  processed: number;
+  updated: number;
+  failed: number;
+  skipped: number;
+  nextCursor: number | null;
+  done: boolean;
+  durationMs: number;
+  warnings: string[];
+}
+
+const PUSH_DELAY_MS = 650;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Envía los datos locales de Altosa hacia Contifico para todas las variantes
+ * ya mapeadas. No envía stock: el stock se lee desde Contifico.
+ * Procesa por lotes con cursor para respetar el rate limit (~100/min).
+ */
+export async function pushContificoCatalog(
+  input: ContificoPushBody
+): Promise<ContificoPushResult> {
+  requireConfigured();
+  const prisma = getPrisma();
+  const startedAt = Date.now();
+  const limit = input.limit ?? 50;
+  const dryRun = input.dryRun ?? false;
+
+  const total = await prisma.productoVariante.count({
+    where: { contificoId: { not: null } },
+  });
+  const variants = await prisma.productoVariante.findMany({
+    where: {
+      contificoId: { not: null },
+      ...(input.cursor ? { idVariante: { gt: input.cursor } } : {}),
+    },
+    select: {
+      idVariante: true,
+      sku: true,
+      nombre: true,
+      color: true,
+      descripcionContifico: true,
+      precioUsd: true,
+      porcentajeIva: true,
+      isActive: true,
+      contificoId: true,
+      producto: {
+        select: {
+          producto: true,
+          subcategoria: { select: { nombre: true } },
+        },
+      },
+    },
+    orderBy: { idVariante: 'asc' },
+    take: limit,
+  });
+
+  let updated = 0;
+  let failed = 0;
+  let skipped = 0;
+  const warnings: string[] = [];
+
+  for (const variant of variants) {
+    if (!variant.contificoId) {
+      skipped += 1;
+      continue;
+    }
+    if (dryRun) {
+      updated += 1;
+      continue;
+    }
+    try {
+      await updateContificoProductForVariant(variant.contificoId, {
+        productName: variant.producto.producto,
+        variantName: variant.nombre,
+        sku: variant.sku,
+        color: variant.color,
+        description: variant.descripcionContifico,
+        price:
+          variant.precioUsd === null ? null : Number(variant.precioUsd),
+        porcentajeIva: variant.porcentajeIva,
+        isActive: variant.isActive,
+        subcategoryName: variant.producto.subcategoria?.nombre ?? null,
+      });
+      updated += 1;
+    } catch (error) {
+      failed += 1;
+      if (warnings.length < 20) {
+        const message =
+          error instanceof Error ? error.message : 'Error desconocido';
+        warnings.push(
+          `${variant.sku ?? variant.idVariante}: ${message}`
+        );
+      }
+    }
+    await sleep(PUSH_DELAY_MS);
+  }
+
+  const done = variants.length < limit;
+  return {
+    dryRun,
+    total,
+    processed: variants.length,
+    updated,
+    failed,
+    skipped,
+    nextCursor: done ? null : variants.at(-1)?.idVariante ?? null,
+    done,
+    durationMs: Date.now() - startedAt,
+    warnings,
+  };
+}

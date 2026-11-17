@@ -230,6 +230,7 @@ function mapVariante(variante: VarianteConRelaciones) {
     color: variante.color,
     nombre: variante.nombre,
     descripcion: variante.descripcion,
+    descripcionContifico: variante.descripcionContifico,
     precioUsd,
     porcentajeIva,
     ivaUsd,
@@ -1333,6 +1334,7 @@ function variantCreateData(input: VariantBody, productName: string) {
     nombre: input.nombre?.trim() || buildFlatName(productName, input.color ?? null),
     color: input.color || null,
     descripcion: input.descripcion || null,
+    descripcionContifico: input.descripcionContifico || null,
     precioUsd: input.precioUsd ?? null,
     porcentajeIva: input.porcentajeIva ?? 15,
     material: input.material || null,
@@ -1378,6 +1380,9 @@ function variantUpdateData(input: UpdateVariantBody): Prisma.ProductoVarianteUnc
   if (input.nombre !== undefined) data.nombre = input.nombre.trim() || null;
   if (input.color !== undefined) data.color = input.color || null;
   if (input.descripcion !== undefined) data.descripcion = input.descripcion || null;
+  if (input.descripcionContifico !== undefined) {
+    data.descripcionContifico = input.descripcionContifico || null;
+  }
   if (input.precioUsd !== undefined) data.precioUsd = input.precioUsd;
   if (input.porcentajeIva !== undefined) data.porcentajeIva = input.porcentajeIva;
   if (input.material !== undefined) data.material = input.material || null;
@@ -1492,6 +1497,7 @@ export async function createProduct(input: CreateProductBody) {
         nombre: true,
         color: true,
         descripcion: true,
+        descripcionContifico: true,
         precioUsd: true,
         porcentajeIva: true,
         isActive: true,
@@ -1508,7 +1514,7 @@ export async function createProduct(input: CreateProductBody) {
           variantName: variant.nombre,
           sku: variant.sku,
           color: variant.color,
-          description: variant.descripcion,
+          description: variant.descripcionContifico,
           price: variant.precioUsd === null ? null : Number(variant.precioUsd),
           porcentajeIva: variant.porcentajeIva,
           isActive: variant.isActive,
@@ -1576,6 +1582,7 @@ export async function updateProduct(
           nombre: true,
           color: true,
           descripcion: true,
+          descripcionContifico: true,
           precioUsd: true,
           porcentajeIva: true,
           isActive: true,
@@ -1644,10 +1651,7 @@ export async function updateProduct(
           variantName: variantNames.get(variant.idVariante) ?? variant.nombre,
           sku: variant.sku,
           color: variant.color,
-          description:
-            input.descripcion !== undefined
-              ? input.descripcion
-              : variant.descripcion,
+          description: variant.descripcionContifico,
           price: variant.precioUsd === null ? null : Number(variant.precioUsd),
           isActive: resolvedIsActive ?? variant.isActive,
           subcategoryName,
@@ -1752,6 +1756,7 @@ type VariantExternalFields = {
   sku: string | null;
   color: string | null;
   descripcion: string | null;
+  descripcionContifico: string | null;
   precioUsd: Prisma.Decimal | null;
   porcentajeIva: number;
   imagenUrl: string | null;
@@ -1800,7 +1805,7 @@ async function deactivateVariantExternally(
         productName: variant.producto.producto,
         sku: variant.sku,
         color: variant.color,
-        description: variant.descripcion,
+        description: variant.descripcionContifico,
         price,
         isActive: false,
         subcategoryName,
@@ -1836,6 +1841,7 @@ export async function annulProduct(id: number) {
           sku: true,
           color: true,
           descripcion: true,
+          descripcionContifico: true,
           precioUsd: true,
           porcentajeIva: true,
           imagenUrl: true,
@@ -1934,7 +1940,7 @@ export async function createVariant(productId: number, input: VariantBody) {
         variantName: created.nombre,
         sku: created.sku,
         color: created.color,
-        description: created.descripcion,
+        description: created.descripcionContifico,
         price: created.precioUsd === null ? null : Number(created.precioUsd),
         porcentajeIva: created.porcentajeIva,
         isActive: created.isActive,
@@ -1988,6 +1994,7 @@ export async function updateVariant(
       color: true,
       nombre: true,
       descripcion: true,
+      descripcionContifico: true,
       precioUsd: true,
       porcentajeIva: true,
       isActive: true,
@@ -2051,6 +2058,7 @@ export async function updateVariant(
     (input.nombre !== undefined ||
       input.color !== undefined ||
       input.descripcion !== undefined ||
+      input.descripcionContifico !== undefined ||
       input.precioUsd !== undefined ||
       input.porcentajeIva !== undefined ||
       input.isActive !== undefined ||
@@ -2063,9 +2071,9 @@ export async function updateVariant(
         sku: existing.sku,
         color: input.color ?? existing.color,
         description:
-          input.descripcion !== undefined
-            ? input.descripcion
-            : existing.descripcion,
+          input.descripcionContifico !== undefined
+            ? input.descripcionContifico
+            : existing.descripcionContifico,
         price:
           input.precioUsd !== undefined
             ? input.precioUsd
@@ -2180,6 +2188,7 @@ export async function annulVariant(variantId: number) {
       sku: true,
       color: true,
       descripcion: true,
+      descripcionContifico: true,
       precioUsd: true,
       porcentajeIva: true,
       imagenUrl: true,
@@ -2593,6 +2602,7 @@ export async function syncProducts(
           nombre: true,
           color: true,
           descripcion: true,
+          descripcionContifico: true,
           imagenUrl: true,
           especificacionesAdicionales: true,
           isActive: true,
@@ -2756,7 +2766,7 @@ export async function syncProducts(
               productName: item.nombre,
               sku: savedVariant.sku,
               color: savedVariant.color,
-              description: savedVariant.descripcion,
+              description: savedVariant.descripcionContifico,
               price:
                 savedVariant.precioUsd === null
                   ? null
@@ -2787,7 +2797,7 @@ export async function syncProducts(
               variantName: savedVariant.nombre,
               sku: savedVariant.sku,
               color: savedVariant.color,
-              description: savedVariant.descripcion,
+              description: savedVariant.descripcionContifico,
               price:
                 savedVariant.precioUsd === null
                   ? null
@@ -2892,3 +2902,4 @@ export async function deactivateProductsBySku(
 
   return { variantsDeactivated: variants.length, productsDeactivated };
 }
+

@@ -84,6 +84,16 @@ else
 fi
 echo
 
+echo "--- product_variants.descripcion_contifico ---"
+DESC_CONTIFICO_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM information_schema.columns WHERE table_name='product_variants' AND column_name='descripcion_contifico';")"
+if [ "$DESC_CONTIFICO_COL" = "1" ]; then
+  echo "OK: product_variants.descripcion_contifico"
+else
+  echo "ERROR: falta product_variants.descripcion_contifico (ejecuta scripts/apply-variant-descripcion-contifico-migration.sh)" >&2
+  exit 1
+fi
+echo
+
 echo "--- products.palabras_clave ---"
 PRODUCT_KEYWORDS_COL="$(docker exec altosa-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name='palabras_clave';")"
 if [ -n "$PRODUCT_KEYWORDS_COL" ]; then

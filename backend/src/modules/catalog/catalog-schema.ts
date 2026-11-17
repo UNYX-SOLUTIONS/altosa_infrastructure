@@ -130,6 +130,7 @@ export const variantBodySchema = z.object({
   isActive: z.boolean().optional(),
   color: z.string().trim().max(80).optional(),
   descripcion: z.string().trim().max(2000).optional(),
+  descripcionContifico: z.string().trim().max(2000).optional(),
   precioUsd: z.coerce.number().min(0).max(1_000_000).optional(),
   porcentajeIva: z.coerce.number().int().min(0).max(100).optional(),
   material: z.string().trim().max(200).optional(),
