@@ -370,7 +370,8 @@ export async function createContificoProductForVariant(
  */
 export async function updateContificoProductForVariant(
   contificoId: string | null | undefined,
-  input: ContificoVariantPayload
+  input: ContificoVariantPayload,
+  options: { preserveEstado?: boolean } = {}
 ): Promise<void> {
   if (!isContificoConfigured() || !contificoId) {
     return;
@@ -380,6 +381,8 @@ export async function updateContificoProductForVariant(
     nombre:
       input.variantName?.trim() ||
       buildFlatName(input.productName, input.color),
+    // Un string vacío limpia la descripción en Contifico. No usar undefined:
+    // en el PUT completo de v2 eso conservaría la descripción anterior.
     descripcion: input.description ?? '',
     ...(input.subcategoryName
       ? { categoriaNombre: input.subcategoryName }
@@ -390,7 +393,9 @@ export async function updateContificoProductForVariant(
     ...(input.porcentajeIva !== undefined && input.porcentajeIva !== null
       ? { porcentajeIva: input.porcentajeIva }
       : {}),
-    estado: input.isActive ? 'A' : 'I',
+    ...(options.preserveEstado
+      ? {}
+      : { estado: input.isActive ? 'A' : 'I' }),
   });
 }
 
@@ -438,12 +443,13 @@ export async function pushContificoCatalog(
   const limit = input.limit ?? 50;
   const dryRun = input.dryRun ?? false;
 
-  const total = await prisma.productoVariante.count({
-    where: { contificoId: { not: null } },
-  });
+  const mappedWhere = {
+    OR: [{ contificoId: { not: null } }, { contificoSku: { not: null } }],
+  };
+  const total = await prisma.productoVariante.count({ where: mappedWhere });
   const variants = await prisma.productoVariante.findMany({
     where: {
-      contificoId: { not: null },
+      ...mappedWhere,
       ...(input.cursor ? { idVariante: { gt: input.cursor } } : {}),
     },
     select: {
@@ -456,6 +462,7 @@ export async function pushContificoCatalog(
       porcentajeIva: true,
       isActive: true,
       contificoId: true,
+      contificoSku: true,
       producto: {
         select: {
           producto: true,
@@ -473,7 +480,39 @@ export async function pushContificoCatalog(
   const warnings: string[] = [];
 
   for (const variant of variants) {
-    if (!variant.contificoId) {
+    let contificoId = variant.contificoId;
+    let contificoSku = variant.contificoSku?.trim() || null;
+
+    if (!contificoId && contificoSku) {
+      try {
+        const matches = await searchContificoProducts(contificoSku, 10);
+        const match = matches.find(
+          (product) =>
+            normalize(resolveContificoSku(product)) === normalize(contificoSku)
+        );
+        if (match) {
+          contificoId = match.id;
+          contificoSku = resolveContificoSku(match);
+          await prisma.productoVariante.update({
+            where: { idVariante: variant.idVariante },
+            data: { contificoId, contificoSku },
+          });
+        }
+      } catch (error) {
+        failed += 1;
+        if (warnings.length < 20) {
+          const message =
+            error instanceof Error ? error.message : 'Error desconocido';
+          warnings.push(
+            `${variant.sku ?? variant.idVariante}: no se pudo resolver el contificoId (${message})`
+          );
+        }
+        await sleep(PUSH_DELAY_MS);
+        continue;
+      }
+    }
+
+    if (!contificoId) {
       skipped += 1;
       continue;
     }
@@ -482,18 +521,22 @@ export async function pushContificoCatalog(
       continue;
     }
     try {
-      await updateContificoProductForVariant(variant.contificoId, {
-        productName: variant.producto.producto,
-        variantName: variant.nombre,
-        sku: variant.sku,
-        color: variant.color,
-        description: variant.descripcionContifico,
-        price:
-          variant.precioUsd === null ? null : Number(variant.precioUsd),
-        porcentajeIva: variant.porcentajeIva,
-        isActive: variant.isActive,
-        subcategoryName: variant.producto.subcategoria?.nombre ?? null,
-      });
+      await updateContificoProductForVariant(
+        contificoId,
+        {
+          productName: variant.producto.producto,
+          variantName: variant.nombre,
+          sku: variant.sku,
+          color: variant.color,
+          description: variant.descripcionContifico,
+          price:
+            variant.precioUsd === null ? null : Number(variant.precioUsd),
+          porcentajeIva: variant.porcentajeIva,
+          isActive: variant.isActive,
+          subcategoryName: variant.producto.subcategoria?.nombre ?? null,
+        },
+        { preserveEstado: true }
+      );
       updated += 1;
     } catch (error) {
       failed += 1;
