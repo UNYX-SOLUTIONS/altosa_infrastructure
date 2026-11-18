@@ -59,7 +59,7 @@ async function main(): Promise<void> {
       continue;
     }
     try {
-      await updateContificoProduct(variant.contificoId, { descripcion: '' });
+      await updateContificoProduct(variant.contificoId, { descripcion: ' ' });
       ok += 1;
       logger.info(
         { variantId: variant.idVariante, sku: variant.sku },
