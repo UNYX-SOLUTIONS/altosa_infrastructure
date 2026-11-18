@@ -381,9 +381,10 @@ export async function updateContificoProductForVariant(
     nombre:
       input.variantName?.trim() ||
       buildFlatName(input.productName, input.color),
-    // Un string vacío limpia la descripción en Contifico. No usar undefined:
-    // en el PUT completo de v2 eso conservaría la descripción anterior.
-    descripcion: input.description ?? '',
+    // Contifico ignora "" y null al actualizar la descripción; un espacio sí
+    // la deja visualmente vacía. No usar undefined: en el PUT de v2 eso
+    // conservaría la descripción anterior.
+    descripcion: input.description?.trim() ? input.description : ' ',
     ...(input.subcategoryName
       ? { categoriaNombre: input.subcategoryName }
       : {}),
